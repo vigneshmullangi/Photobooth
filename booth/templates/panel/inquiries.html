@@ -1,0 +1,43 @@
+{% extends "panel/base.html" %}
+{% load panel_extras %}
+{% block content %}
+<div class="page-head">
+    <div><h1>Inquiries</h1><p>Messages sent from the contact form on your website.</p></div>
+    {% if counts.unread %}<div class="actions"><form method="post" action="{% url 'panel:inquiries_read_all' %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn" type="submit"><svg class="i i-sm"><use href="#i-check"/></svg>Mark all as read</button></form></div>{% endif %}
+</div>
+
+<form class="toolbar" method="get">
+    <div class="tabs">
+        <a class="tab{% if not status %} is-active{% endif %}" href="?">All <small>{{ counts.all }}</small></a>
+        <a class="tab{% if status == 'unread' %} is-active{% endif %}" href="?status=unread">Unread <small>{{ counts.unread }}</small></a>
+        <a class="tab{% if status == 'contacted' %} is-active{% endif %}" href="?status=contacted">Contacted <small>{{ counts.contacted }}</small></a>
+        <a class="tab{% if status == 'closed' %} is-active{% endif %}" href="?status=closed">Closed <small>{{ counts.closed }}</small></a>
+    </div>
+    {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+    <div class="search" style="margin-left:auto"><svg class="i"><use href="#i-search"/></svg><input type="search" name="q" value="{{ q }}" placeholder="Search name, email or message" aria-label="Search inquiries"></div>
+</form>
+
+<section class="card">
+    {% if page.object_list %}
+    <div class="table-wrap"><table class="t">
+        <thead><tr><th>From</th><th>Message</th><th class="hide-sm">Interested in</th><th>Status</th><th>Received</th></tr></thead>
+        <tbody>
+        {% for i in page.object_list %}
+        <tr class="row-link{% if not i.is_read %} unread{% endif %}" onclick="location.href='{% url 'panel:inquiry_detail' i.pk %}'">
+            <td class="who"><a href="{% url 'panel:inquiry_detail' i.pk %}"><b>{{ i.name }}</b></a><span>{{ i.email }}</span></td>
+            <td><div class="preview-line">{{ i.message }}</div></td>
+            <td class="hide-sm">{{ i.interest|default:"General question" }}</td>
+            <td>{% if not i.is_read %}<span class="pill new">New</span>{% elif i.status == 'contacted' %}<span class="pill info">Contacted</span>{% elif i.status == 'closed' %}<span class="pill off">Closed</span>{% else %}<span class="pill warn">Open</span>{% endif %}</td>
+            <td class="muted" title="{{ i.created|date:'d M Y, H:i' }}" style="white-space:nowrap">{{ i.created|ago }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+    {% include "panel/_pager.html" %}
+    {% elif q or status %}
+    <div class="empty"><svg class="i"><use href="#i-search"/></svg><h3>No inquiries found</h3><p>Try another filter or search term.</p><a class="btn" href="{% url 'panel:inquiries' %}">Show all</a></div>
+    {% else %}
+    <div class="empty"><svg class="i"><use href="#i-mail"/></svg><h3>No inquiries yet</h3><p>When someone fills in the contact form on the website, you will be notified here instantly.</p></div>
+    {% endif %}
+</section>
+{% endblock %}

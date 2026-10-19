@@ -1,0 +1,97 @@
+{% extends "panel/base.html" %}
+{% load panel_extras %}
+{% block content %}
+<div class="page-head">
+    <div><h1>Dashboard</h1><p>What is happening across your campaigns and website.</p></div>
+    <div class="actions">
+        <a class="btn" href="{% url 'panel:frames_bulk' %}"><svg class="i i-sm"><use href="#i-upload"/></svg>Upload frames</a>
+        <a class="btn primary" href="{% url 'panel:campaign_new' %}"><svg class="i i-sm"><use href="#i-plus"/></svg>New campaign</a>
+    </div>
+</div>
+
+<div class="stats">
+    <a class="card stat{% if stats.inquiries_new %} is-alert{% endif %}" href="{% url 'panel:inquiries' %}?status=unread">
+        <div class="label"><svg class="i i-sm"><use href="#i-mail"/></svg>Unread inquiries</div>
+        <div class="num">{{ stats.inquiries_new }}</div>
+        <div class="sub">{{ stats.inquiries_total }} received in total</div>
+    </a>
+    <a class="card stat" href="{% url 'panel:campaigns' %}">
+        <div class="label"><svg class="i i-sm"><use href="#i-qr"/></svg>Live campaigns</div>
+        <div class="num">{{ stats.campaigns_active }}</div>
+        <div class="sub">{{ stats.campaigns }} campaign{{ stats.campaigns|pluralize }} in total</div>
+    </a>
+    <a class="card stat" href="{% url 'panel:frames' %}">
+        <div class="label"><svg class="i i-sm"><use href="#i-frame"/></svg>Visible frames</div>
+        <div class="num">{{ stats.frames_active }}</div>
+        <div class="sub">{{ stats.frames }} frame{{ stats.frames|pluralize }} uploaded</div>
+    </a>
+    <a class="card stat" href="{% url 'panel:creations' %}">
+        <div class="label"><svg class="i i-sm"><use href="#i-image"/></svg>Gallery pictures</div>
+        <div class="num">{{ stats.creations }}</div>
+        <div class="sub">{{ stats.creations_week }} in the last 7 days</div>
+    </a>
+</div>
+
+<div class="grid-2">
+    <div class="stack">
+        <section class="card">
+            <div class="card-head"><h2>Activity, last 14 days</h2>
+                <div class="aside legend"><span><i style="background:var(--ink)"></i>Inquiries ({{ chart_total_inq }})</span><span><i style="background:var(--accent)"></i>Gallery saves ({{ chart_total_cre }})</span></div>
+            </div>
+            <div class="chart">
+                <div class="bars" role="img" aria-label="Inquiries and gallery saves per day for the last 14 days">
+                    {% for d in chart %}
+                    <div class="bar-col" title="{{ d.label }}: {{ d.inq }} inquir{{ d.inq|pluralize:'y,ies' }}, {{ d.cre }} gallery save{{ d.cre|pluralize }}">
+                        <i class="b-inq" style="height:{{ d.inq_h }}%"></i><i class="b-cre" style="height:{{ d.cre_h }}%"></i>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="bar-x">{% for d in chart %}<span>{{ d.short }}</span>{% endfor %}</div>
+            </div>
+        </section>
+
+        <section class="card">
+            <div class="card-head"><h2>Recent campaigns</h2><a class="aside link" href="{% url 'panel:campaigns' %}">View all</a></div>
+            {% if recent_campaigns %}
+            <div class="table-wrap"><table class="t"><tbody>
+                {% for c in recent_campaigns %}
+                <tr>
+                    <td><a class="entity" href="{% url 'panel:campaign_edit' c.pk %}"><span class="logo" style="background-image:url('{{ c.logo.url }}')"></span><span><b>{{ c.brand_name }}</b><span class="mono">{{ c.slug }}</span></span></a></td>
+                    <td class="hide-sm">{% if c.is_active %}<span class="pill ok">Live</span>{% else %}<span class="pill off">Paused</span>{% endif %}</td>
+                    <td class="right"><a class="btn sm" href="{% url 'panel:campaign_qr' c.pk %}?download=1"><svg class="i i-sm"><use href="#i-download"/></svg>QR code</a></td>
+                </tr>
+                {% endfor %}
+            </tbody></table></div>
+            {% else %}
+            <div class="empty"><svg class="i"><use href="#i-qr"/></svg><h3>No campaigns yet</h3><p>Create one to get a shareable link and QR code.</p><a class="btn primary" href="{% url 'panel:campaign_new' %}">New campaign</a></div>
+            {% endif %}
+        </section>
+    </div>
+
+    <div class="stack">
+        <section class="card">
+            <div class="card-head"><h2>Latest inquiries</h2><a class="aside link" href="{% url 'panel:inquiries' %}">View all</a></div>
+            {% if recent_inquiries %}
+            <ul class="feed">
+                {% for i in recent_inquiries %}
+                <li><a href="{% url 'panel:inquiry_detail' i.pk %}" class="{% if not i.is_read %}is-new{% endif %}">
+                    <span class="avatar">{{ i.name|slice:":1" }}</span>
+                    <span class="body"><b>{{ i.name }}<small title="{{ i.created|date:'d M Y, H:i' }}">{{ i.created|ago }}</small></b><p>{{ i.interest|default:"General question" }} &middot; {{ i.message }}</p></span>
+                </a></li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <div class="empty"><svg class="i"><use href="#i-mail"/></svg><h3>No inquiries yet</h3><p>Messages sent from the website contact form will appear here.</p></div>
+            {% endif %}
+        </section>
+        <section class="card">
+            <div class="card-head"><h2>Latest gallery pictures</h2><a class="aside link" href="{% url 'panel:creations' %}">View all</a></div>
+            {% if recent_creations %}
+            <div class="mini-gallery">{% for c in recent_creations %}<a href="{{ c.image.url }}" target="_blank" rel="noopener" style="background-image:url('{{ c.image.url }}')" aria-label="Picture {{ c.pk }}"></a>{% endfor %}</div>
+            {% else %}
+            <div class="empty"><svg class="i"><use href="#i-image"/></svg><h3>Nothing saved yet</h3><p>Pictures guests save to the gallery appear here.</p></div>
+            {% endif %}
+        </section>
+    </div>
+</div>
+{% endblock %}

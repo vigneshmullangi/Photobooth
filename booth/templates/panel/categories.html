@@ -1,0 +1,22 @@
+{% extends "panel/base.html" %}
+{% block content %}
+<div class="page-head"><div><h1>Categories</h1><p>Groups that frames are organised into on the website.</p></div>
+    <div class="actions"><a class="btn primary" href="{% url 'panel:category_new' %}"><svg class="i i-sm"><use href="#i-plus"/></svg>Add category</a></div></div>
+<section class="card">
+    {% if items %}
+    <div class="table-wrap"><table class="t">
+        <thead><tr><th>Name</th><th>Frames</th><th>Order</th><th>Status</th><th></th></tr></thead>
+        <tbody>{% for c in items %}
+        <tr>
+            <td><a href="{% url 'panel:category_edit' c.pk %}"><b style="font-weight:600">{{ c.name }}</b></a><div class="mono muted">{{ c.slug }}</div></td>
+            <td><a class="link" href="{% url 'panel:frames' %}?category={{ c.pk }}">{{ c.n_frames }}</a></td>
+            <td>{{ c.order }}</td>
+            <td>{% if c.is_active %}<span class="pill ok">Visible</span>{% else %}<span class="pill off">Hidden</span>{% endif %}</td>
+            <td><div class="cell-actions"><a class="btn sm" href="{% url 'panel:category_edit' c.pk %}">Edit</a></div></td>
+        </tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}
+    <div class="empty"><svg class="i"><use href="#i-tag"/></svg><h3>No categories</h3><p>Create a category before uploading frames.</p><a class="btn primary" href="{% url 'panel:category_new' %}">Add category</a></div>
+    {% endif %}
+</section>
+{% endblock %}

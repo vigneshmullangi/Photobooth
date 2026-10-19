@@ -1,0 +1,138 @@
+{% extends "panel/base.html" %}
+{% load static %}
+{% block content %}
+<a class="back-link" href="{% url 'panel:frames' %}"><svg class="i i-sm"><use href="#i-back"/></svg>Frames</a>
+<div class="page-head">
+    <div><h1>{% if frame %}{{ frame.name }}{% else %}Add frame{% endif %}</h1>
+        <p>{% if frame %}{{ frame.width }} &times; {{ frame.height }} px &middot; updated {{ frame.updated|date:"d M Y" }}{% else %}Upload a transparent PNG. Photo windows are detected automatically.{% endif %}</p></div>
+    {% if frame %}<div class="actions">
+        <a class="btn" href="{% url 'panel:frame_designer' %}?frame_id={{ frame.pk }}"><svg class="i i-sm"><use href="#i-pen"/></svg>Design with Studio</a>
+        <form method="post" action="{% url 'panel:frame_delete' frame.pk %}" data-confirm="This permanently deletes the frame. Frames used by a business campaign cannot be deleted." data-confirm-title="Delete {{ frame.name }}?">{% csrf_token %}<button class="btn danger" type="submit"><svg class="i i-sm"><use href="#i-trash"/></svg>Delete</button></form>
+    </div>{% endif %}
+</div>
+
+<form method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+    <div class="grid-form">
+        <div class="stack">
+            <section class="card">
+                <div class="card-body">
+                    {% if form.non_field_errors %}<div class="form-error">{{ form.non_field_errors|join:" " }}</div>{% endif %}
+                    {% include "panel/_field.html" with field=form.name %}
+                    <div class="row-2">
+                        {% include "panel/_field.html" with field=form.category %}
+                        {% include "panel/_field.html" with field=form.order %}
+                    </div>
+                    <div class="field{% if form.image.errors %} has-error{% endif %}">
+                        <label for="{{ form.image.id_for_label }}">{% if frame %}Replace image{% else %}Frame image{% endif %}</label>
+                        <div class="file-pick">
+                            <span class="thumb checker" id="frameThumb"{% if frame %} style="background-image:url('{{ frame.image.url }}')"{% endif %}></span>
+                            <input type="file" name="image" id="{{ form.image.id_for_label }}" accept="image/*" data-preview="#frameThumb"{% if not frame %} required{% endif %}>
+                        </div>
+                        <span class="help">Transparent PNG. {% if frame %}Uploading a new image resets the photo windows.{% else %}A fake grey/white checkerboard background is converted to real transparency.{% endif %}</span>
+                        {% if form.image.errors %}<div class="errors">{{ form.image.errors|join:" " }}</div>{% endif %}
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" name="is_active"{% if form.is_active.value %} checked{% endif %}><span class="track"></span>
+                        <span class="text"><b>Visible on the website</b><span>Hidden frames stay saved but guests cannot pick them.</span></span>
+                    </label>
+                </div>
+            </section>
+
+            {% if frame %}
+            <section class="card">
+                <div class="card-head"><div><h2>Photo windows</h2><span class="aside">Place each opening over the frame artwork.</span></div><span class="table-unit">Coordinates in %</span></div>
+                {{ formset.management_form }}
+                {% if formset.non_form_errors %}<div class="card-body"><div class="form-error">{{ formset.non_form_errors|join:" " }}</div></div>{% endif %}
+                <div class="table-wrap"><table class="t">
+                    <thead><tr><th scope="col">Photo</th><th scope="col">Left</th><th scope="col">Top</th><th scope="col">Width</th><th scope="col">Height</th><th scope="col">Shape</th><th scope="col"><span class="sr-only">Remove</span></th></tr></thead>
+                    <tbody id="slotRows">
+                    {% for f in formset %}
+                    <tr class="editor-row{% if f.DELETE.value %} is-deleted{% endif %}">
+                        <td class="row-number">{% for h in f.hidden_fields %}{{ h }}{% endfor %}<span class="row-index">{{ forloop.counter }}</span>{{ f.order.as_hidden }}{{ f.order.errors }}</td>
+                        <td>{{ f.x }}{{ f.x.errors }}</td><td>{{ f.y }}{{ f.y.errors }}</td><td>{{ f.w }}{{ f.w.errors }}</td><td>{{ f.h }}{{ f.h.errors }}</td><td>{{ f.shape }}</td>
+                        <td class="remove-cell"><label class="remove-control" title="Remove photo window">{{ f.DELETE }}<span aria-hidden="true">&times;</span><span class="sr-only">Remove photo window {{ forloop.counter }}</span></label></td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table></div>
+                {% if not formset.forms %}<div class="empty" id="slotEmpty" style="padding:28px"><p>No photo windows. Add one, or use <b>Re-detect</b> from the frames list.</p></div>{% endif %}
+                <div class="form-actions"><button type="button" class="btn sm" id="addSlot"><svg class="i i-sm" aria-hidden="true"><use href="#i-plus"/></svg>Add photo window</button><span class="help muted">Drag the numbered boxes in the preview to position windows.</span></div>
+                <template id="slotTemplate"><tr>
+                    <td class="row-number">{% for h in formset.empty_form.hidden_fields %}{{ h }}{% endfor %}<span class="row-index"></span>{{ formset.empty_form.order.as_hidden }}</td>
+                    <td>{{ formset.empty_form.x }}</td><td>{{ formset.empty_form.y }}</td><td>{{ formset.empty_form.w }}</td><td>{{ formset.empty_form.h }}</td><td>{{ formset.empty_form.shape }}</td><td></td>
+                </tr></template>
+            </section>
+
+            <section class="card">
+                <div class="card-head"><div><h2>Studio fields</h2><span class="aside">Let guests personalize this frame in Studio.</span></div><span class="table-unit">Text · Date · Image</span></div>
+                {{ tformset.management_form }}
+                {% if tformset.non_form_errors %}<div class="card-body"><div class="form-error">{{ tformset.non_form_errors|join:" " }}</div></div>{% endif %}
+                <div class="studio-field-list" id="textRows">
+                    {% for f in tformset %}
+                    <article class="studio-field-card editor-row{% if f.DELETE.value %} is-deleted{% endif %}">
+                        {% for h in f.hidden_fields %}{{ h }}{% endfor %}{{ f.order.as_hidden }}
+                        <header class="studio-field-card-head"><span class="row-index">{{ forloop.counter }}</span><span class="studio-field-title">{{ f.label.value|default:"New field" }}</span><label class="remove-control" title="Remove Studio field">{{ f.DELETE }}<span aria-hidden="true">&times;</span><span class="sr-only">Remove Studio field {{ forloop.counter }}</span></label></header>
+                        <div class="studio-field-grid">
+                            <label class="studio-control"><span>Label</span>{{ f.label }}{{ f.label.errors }}</label>
+                            <label class="studio-control"><span>Field type</span>{{ f.data_type }}</label>
+                            <label class="studio-control field-setting" data-setting="default"><span>Default text</span>{{ f.default_text }}</label>
+                            <div class="studio-control field-setting default-image-setting" data-setting="image"><span>Default image</span>{% if f.instance.default_image %}<img class="default-image-thumb" src="{{ f.instance.default_image.url }}" alt="Current default image for {{ f.label.value }}">{% endif %}{{ f.default_image }}{{ f.default_image.errors }}<small>Optional. Guests can replace this image in Studio.</small></div>
+                            <label class="studio-control field-setting" data-setting="max"><span>Max characters</span>{{ f.max_length }}</label>
+                            <label class="studio-control field-setting" data-setting="font"><span>Font</span>{{ f.font }}</label>
+                            <label class="studio-control field-setting" data-setting="color"><span>Text colour</span><span class="colour-control"><input type="color" data-color-picker value="{{ f.color.value|default:'#b8893b' }}" aria-label="Choose text colour">{{ f.color }}</span></label>
+                            <label class="studio-control field-setting" data-setting="align"><span>Alignment</span>{{ f.align }}</label>
+                            <label class="studio-control studio-caps field-setting" data-setting="caps">{{ f.uppercase }}<span>Use uppercase</span></label>
+                        </div>
+                        <p class="studio-type-hint" data-hint="upload">Guests can choose an image in Studio. It appears inside this field’s preview box.</p>
+                        <p class="studio-type-hint" data-hint="text">Guests can change this text in Studio.</p>
+                        <p class="studio-type-hint" data-hint="date">Guests can choose a date in Studio.</p>
+                    </article>
+                    {% endfor %}
+                </div>
+                <div class="form-actions"><button type="button" class="btn sm" id="addText"><svg class="i i-sm" aria-hidden="true"><use href="#i-plus"/></svg>Add field</button>
+                    <span class="help muted">Set its label and style, then drag its box in the preview to position it.</span></div>
+                <template id="textTemplate"><article class="studio-field-card editor-row">
+                    {% for h in tformset.empty_form.hidden_fields %}{{ h }}{% endfor %}{{ tformset.empty_form.order.as_hidden }}
+                    <header class="studio-field-card-head"><span class="row-index"></span><span class="studio-field-title">New field</span><label class="remove-control" title="Remove Studio field">{{ tformset.empty_form.DELETE }}<span aria-hidden="true">&times;</span><span class="sr-only">Remove Studio field</span></label></header>
+                    <div class="studio-field-grid">
+                        <label class="studio-control"><span>Label</span>{{ tformset.empty_form.label }}</label>
+                        <label class="studio-control"><span>Field type</span>{{ tformset.empty_form.data_type }}</label>
+                        <label class="studio-control field-setting" data-setting="default"><span>Default text</span>{{ tformset.empty_form.default_text }}</label>
+                        <div class="studio-control field-setting default-image-setting" data-setting="image"><span>Default image</span>{{ tformset.empty_form.default_image }}<small>Optional. Guests can replace this image in Studio.</small></div>
+                        <label class="studio-control field-setting" data-setting="max"><span>Max characters</span>{{ tformset.empty_form.max_length }}</label>
+                        <label class="studio-control field-setting" data-setting="font"><span>Font</span>{{ tformset.empty_form.font }}</label>
+                        <label class="studio-control field-setting" data-setting="color"><span>Text colour</span><span class="colour-control"><input type="color" data-color-picker value="#b8893b" aria-label="Choose text colour">{{ tformset.empty_form.color }}</span></label>
+                        <label class="studio-control field-setting" data-setting="align"><span>Alignment</span>{{ tformset.empty_form.align }}</label>
+                        <label class="studio-control studio-caps field-setting" data-setting="caps">{{ tformset.empty_form.uppercase }}<span>Use uppercase</span></label>
+                    </div>
+                    <p class="studio-type-hint" data-hint="upload">Guests can choose an image in Studio. It appears inside this field’s preview box.</p>
+                    <p class="studio-type-hint" data-hint="text">Guests can change this text in Studio.</p>
+                    <p class="studio-type-hint" data-hint="date">Guests can choose a date in Studio.</p>
+                </article></template>
+            </section>
+            {% endif %}
+
+            <div class="card"><div class="form-actions" style="border:0;background:none">
+                <button class="btn primary" type="submit">{% if frame %}Save changes{% else %}Upload frame{% endif %}</button>
+                <a class="btn" href="{% url 'panel:frames' %}">Cancel</a>
+            </div></div>
+        </div>
+
+        <aside class="card">
+            <div class="card-head"><h2>{% if frame %}Numbered preview{% else %}Preview{% endif %}</h2></div>
+            {% if frame %}
+            <div class="preview-box"><div class="frame-preview checker">
+                <img src="{{ frame.image.url }}" alt="{{ frame.name }}">
+                {% for t in texts %}<div class="win txt{% if t.data_type == 'upload' %} image-field{% endif %}" data-text-index="{{ forloop.counter0 }}" data-image-url="{% if t.default_image %}{{ t.default_image.url }}{% endif %}" style="left:{{ t.x }}%;top:{{ t.y }}%;width:{{ t.w }}%;height:{{ t.h }}%;color:{{ t.color }}">{% if t.data_type == 'upload' and t.default_image %}<img class="field-image-preview" src="{{ t.default_image.url }}" alt="Default image for {{ t.label }}">{% endif %}<span>{{ t.default_text|default:t.label }}</span><i class="txt-resize" aria-hidden="true"></i></div>{% endfor %}
+                {% for s in slots %}<div class="win win-{{ s.shape }}" style="left:{{ s.x }}%;top:{{ s.y }}%;width:{{ s.w }}%;height:{{ s.h }}%">{{ forloop.counter }}</div>{% endfor %}
+            </div></div>
+            <div class="card-body" style="padding-top:0"><span class="help muted">{{ slots|length }} photo window{{ slots|length|pluralize }} detected.</span></div>
+            {% else %}
+            <div class="qr-empty"><div class="ph"><svg class="i"><use href="#i-frame"/></svg></div><p>The numbered photo windows are shown here once the frame is saved.</p></div>
+            {% endif %}
+        </aside>
+    </div>
+</form>
+{% endblock %}
+{% block page_scripts %}<script src="{% static 'panel/frame-text-positioner.js' %}"></script>{% endblock %}

@@ -1,0 +1,24 @@
+{% extends "admin/base_site.html" %}
+{% block breadcrumbs %}
+<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Home</a> &rsaquo;
+<a href="{% url 'admin:booth_frametemplate_changelist' %}">Frames</a> &rsaquo; Bulk upload</div>
+{% endblock %}
+{% block content %}
+<div id="content-main">
+{% if not categories %}
+  <p class="errornote">Create a category first (or run <code>python manage.py seed_categories</code>).</p>
+{% else %}
+  <form method="post" enctype="multipart/form-data">{% csrf_token %}
+    <p>Select many transparent PNG frames at once. Each file becomes a frame named after its filename
+       (you can rename them in the list afterwards) and its photo windows are detected automatically.</p>
+    <fieldset class="module aligned">
+      <div class="form-row"><label for="category">Category:</label>
+        <select name="category" id="category">{% for c in categories %}<option value="{{ c.pk }}">{{ c.name }}</option>{% endfor %}</select></div>
+      <div class="form-row"><label for="images">Images:</label>
+        <input type="file" name="images" id="images" accept="image/png,image/webp" multiple required></div>
+    </fieldset>
+    <div class="submit-row"><input type="submit" class="default" value="Upload frames"></div>
+  </form>
+{% endif %}
+</div>
+{% endblock %}

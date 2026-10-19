@@ -1,0 +1,41 @@
+{% extends "panel/base.html" %}
+{% load panel_extras %}
+{% block content %}
+<a class="back-link" href="{% url 'panel:inquiries' %}"><svg class="i i-sm"><use href="#i-back"/></svg>Inquiries</a>
+<div class="page-head">
+    <div><h1>{{ inquiry.name }}</h1><p>Received {{ inquiry.created|date:"d M Y, H:i" }} &middot; {{ inquiry.created|ago }}</p></div>
+    <div class="actions">
+        <a class="btn primary" href="mailto:{{ inquiry.email }}?subject={{ 'Re: Photobooth enquiry'|urlencode }}"><svg class="i i-sm"><use href="#i-mail"/></svg>Reply by email</a>
+        <form method="post">{% csrf_token %}<input type="hidden" name="action" value="unread"><button class="btn" type="submit">Mark unread</button></form>
+        <form method="post" action="{% url 'panel:inquiry_delete' inquiry.pk %}" data-confirm="This permanently deletes the message." data-confirm-title="Delete this inquiry?">{% csrf_token %}<button class="btn danger" type="submit"><svg class="i i-sm"><use href="#i-trash"/></svg></button></form>
+    </div>
+</div>
+<div class="detail-grid">
+    <section class="card">
+        <div class="card-head"><h2>{{ inquiry.interest|default:"General question" }}</h2>
+            <div class="aside">{% if inquiry.status == 'contacted' %}<span class="pill info">Contacted</span>{% elif inquiry.status == 'closed' %}<span class="pill off">Closed</span>{% else %}<span class="pill warn">Open</span>{% endif %}</div></div>
+        <div class="card-body"><p class="msg-body">{{ inquiry.message }}</p></div>
+    </section>
+    <div class="stack">
+        <section class="card">
+            <div class="card-head"><h2>Contact details</h2></div>
+            <div class="card-body"><dl class="kv" style="margin:0">
+                <div><dt>Name</dt><dd>{{ inquiry.name }}</dd></div>
+                <div><dt>Email</dt><dd><a class="link" href="mailto:{{ inquiry.email }}">{{ inquiry.email }}</a></dd></div>
+                <div><dt>Phone</dt><dd>{% if inquiry.phone %}<a class="link" href="tel:{{ inquiry.phone }}">{{ inquiry.phone }}</a>{% else %}<span class="muted">Not provided</span>{% endif %}</dd></div>
+                <div><dt>Event date</dt><dd>{% if inquiry.event_date %}{{ inquiry.event_date|date:"l, d M Y" }}{% else %}<span class="muted">Not provided</span>{% endif %}</dd></div>
+            </dl></div>
+        </section>
+        <section class="card">
+            <div class="card-head"><h2>Follow-up status</h2></div>
+            <div class="card-body">
+                <form method="post" class="status-form">{% csrf_token %}<input type="hidden" name="action" value="status">
+                    <button name="status" value="new" class="{% if inquiry.status == 'new' %}is-current{% endif %}">Open</button>
+                    <button name="status" value="contacted" class="{% if inquiry.status == 'contacted' %}is-current{% endif %}">Contacted</button>
+                    <button name="status" value="closed" class="{% if inquiry.status == 'closed' %}is-current{% endif %}">Closed</button>
+                </form>
+            </div>
+        </section>
+    </div>
+</div>
+{% endblock %}

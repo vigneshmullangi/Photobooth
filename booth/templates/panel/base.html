@@ -1,0 +1,82 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% if notify.unread %}({{ notify.unread }}) {% endif %}{{ page_title }} &middot; Photobooth Admin</title>
+    <link rel="icon" href="{% static 'booth/favicon.svg' %}">
+    <link rel="stylesheet" href="{% static 'panel/panel.css' %}?v=campaign-studio-1">
+</head>
+<body>
+{% include "panel/_icons.html" %}
+<aside class="sidebar" aria-label="Main">
+    <a class="side-brand" href="{% url 'panel:dashboard' %}">
+        <span class="logo-mark"></span>
+        <span><b>Photobooth</b><small>Admin</small></span>
+    </a>
+    <nav class="side-nav">
+        <a class="nav-link{% if section == 'dashboard' %} is-active{% endif %}" href="{% url 'panel:dashboard' %}"><svg class="i"><use href="#i-dash"/></svg>Dashboard</a>
+        <a class="nav-link{% if section == 'inquiries' %} is-active{% endif %}" href="{% url 'panel:inquiries' %}"><svg class="i"><use href="#i-mail"/></svg>Inquiries<span class="nav-count" data-unread{% if not notify.unread %} hidden{% endif %}>{{ notify.unread }}</span></a>
+        <div class="side-label">Campaigns</div>
+        <a class="nav-link{% if section == 'campaigns' %} is-active{% endif %}" href="{% url 'panel:campaigns' %}"><svg class="i"><use href="#i-qr"/></svg>Business campaigns</a>
+        <div class="side-label">Content</div>
+        <a class="nav-link{% if section == 'frames' %} is-active{% endif %}" href="{% url 'panel:frames' %}"><svg class="i"><use href="#i-frame"/></svg>Frames</a>
+        <a class="nav-link{% if section == 'categories' %} is-active{% endif %}" href="{% url 'panel:categories' %}"><svg class="i"><use href="#i-tag"/></svg>Categories</a>
+        <a class="nav-link{% if section == 'creations' %} is-active{% endif %}" href="{% url 'panel:creations' %}"><svg class="i"><use href="#i-image"/></svg>Gallery</a>
+        <div class="side-label">Site</div>
+        <a class="nav-link" href="/" target="_blank" rel="noopener"><svg class="i"><use href="#i-site"/></svg>View website</a>
+    </nav>
+    <div class="side-foot">
+        <div class="side-user">
+            <span class="avatar">{{ request.user.username|slice:":1" }}</span>
+            <div><b>{{ request.user.get_full_name|default:request.user.username }}</b><span>{% if request.user.is_superuser %}Administrator{% else %}Staff{% endif %}</span></div>
+            <form method="post" action="{% url 'panel:logout' %}">{% csrf_token %}<button class="icon-btn" title="Sign out" aria-label="Sign out"><svg class="i"><use href="#i-logout"/></svg></button></form>
+        </div>
+    </div>
+</aside>
+<div class="scrim"></div>
+
+<div class="main">
+    <header class="topbar">
+        <button class="icon-btn menu-btn" data-nav-toggle aria-label="Open menu"><svg class="i"><use href="#i-menu"/></svg></button>
+        <div class="crumb">{{ page_title }}</div>
+        <div class="top-actions">
+            <div class="pos-rel">
+                <button class="icon-btn bell" id="bellBtn" aria-label="Notifications" aria-expanded="false">
+                    <svg class="i"><use href="#i-bell"/></svg>
+                    <span class="dot" data-unread{% if not notify.unread %} hidden{% endif %}>{{ notify.unread }}</span>
+                </button>
+                <div class="dropdown" id="bellMenu" hidden>
+                    <div class="dropdown-head">Notifications<a class="link" href="{% url 'panel:inquiries' %}?status=unread">Unread</a></div>
+                    <ul class="feed" id="bellList"{% if not notify_items %} hidden{% endif %}>
+                        {% for i in notify_items %}
+                        <li><a href="{{ i.url }}" class="is-new"><span class="avatar">{{ i.name|slice:":1" }}</span><span class="body"><b>{{ i.name }}<small data-iso="{{ i.created }}">New</small></b><p>{{ i.interest }} - {{ i.snippet }}</p></span></a></li>
+                        {% endfor %}
+                    </ul>
+                    <div class="none" id="bellNone"{% if notify_items %} hidden{% endif %}>You are all caught up.</div>
+                    <a class="dropdown-foot" href="{% url 'panel:inquiries' %}">View all inquiries</a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="content">
+        {% for message in messages %}
+        <div class="flash {{ message.tags }}" role="status"><svg class="i"><use href="#i-{% if message.tags == 'error' %}alert{% else %}check{% endif %}"/></svg><span>{{ message }}</span><button type="button" aria-label="Dismiss"><svg class="i i-sm"><use href="#i-x"/></svg></button></div>
+        {% endfor %}
+        {% block content %}{% endblock %}
+    </main>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<dialog id="confirmDialog">
+    <form method="dialog">
+        <div class="d-body"><h3 id="confirmTitle">Are you sure?</h3><p id="confirmText"></p></div>
+        <div class="d-foot"><button class="btn" value="cancel">Cancel</button><button class="btn confirm-danger" id="confirmOk" value="ok">Delete</button></div>
+    </form>
+</dialog>
+<script>window.PANEL = {notifyUrl: "{% url 'panel:notifications' %}", newest: {{ notify.newest_id|default:0 }}};</script>
+<script src="{% static 'panel/panel.js' %}"></script>
+{% block page_scripts %}{% endblock %}
+</body>
+</html>

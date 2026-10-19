@@ -1,0 +1,54 @@
+{% extends "panel/base.html" %}
+{% block content %}
+<div class="page-head">
+    <div><h1>Business campaigns</h1><p>Branded photo booths with their own link and QR code for each client.</p></div>
+    <div class="actions"><a class="btn primary" href="{% url 'panel:campaign_new' %}"><svg class="i i-sm"><use href="#i-plus"/></svg>New campaign</a></div>
+</div>
+
+<form class="toolbar" method="get">
+    <div class="search"><svg class="i"><use href="#i-search"/></svg><input type="search" name="q" value="{{ q }}" placeholder="Search by brand or link name" aria-label="Search campaigns"></div>
+    <select name="status" aria-label="Status" onchange="this.form.submit()">
+        <option value="">All statuses</option>
+        <option value="active"{% if status == 'active' %} selected{% endif %}>Live</option>
+        <option value="paused"{% if status == 'paused' %} selected{% endif %}>Paused</option>
+    </select>
+    {% if q or status %}<a class="btn sm" href="{% url 'panel:campaigns' %}">Clear</a>{% endif %}
+</form>
+
+<section class="card">
+    {% if page.object_list %}
+    <div class="table-wrap">
+    <table class="t">
+        <thead><tr><th>Campaign</th><th>Campaign link</th><th class="hide-sm">Frame</th><th>Status</th><th class="hide-sm">Created</th><th></th></tr></thead>
+        <tbody>
+        {% for c in page.object_list %}
+        <tr>
+            <td><a class="entity" href="{% url 'panel:campaign_edit' c.pk %}"><span class="logo" style="background-image:url('{{ c.logo.url }}')"></span><span><b>{{ c.brand_name }}</b><span class="mono">{{ c.slug }}</span></span></a></td>
+            <td><div class="link-cell"><a class="mono" href="{{ c.public_url }}" target="_blank" rel="noopener" title="{{ c.public_url }}">{{ c.public_url }}</a>
+                <button type="button" class="icon-btn" data-copy="{{ c.public_url }}" title="Copy link" aria-label="Copy link"><svg class="i i-sm"><use href="#i-copy"/></svg></button></div></td>
+            <td class="hide-sm"><span class="muted">{{ c.frame_template.name }}</span></td>
+            <td>
+                <form method="post" action="{% url 'panel:campaign_toggle' c.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+                    <label class="switch sm" title="{% if c.is_active %}Pause this campaign{% else %}Make this campaign live{% endif %}">
+                        <input type="checkbox"{% if c.is_active %} checked{% endif %} onchange="this.form.submit()" aria-label="Live"><span class="track"></span><span class="muted">{% if c.is_active %}Live{% else %}Paused{% endif %}</span>
+                    </label>
+                </form>
+            </td>
+            <td class="hide-sm muted nowrap">{{ c.created|date:"d M Y" }}</td>
+            <td><div class="cell-actions">
+                <a class="btn sm" href="{% url 'panel:campaign_qr' c.pk %}?download=1"><svg class="i i-sm"><use href="#i-download"/></svg>QR code</a>
+                <a class="btn sm" href="{% url 'panel:campaign_edit' c.pk %}">Edit</a>
+            </div></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% include "panel/_pager.html" %}
+    {% elif q or status %}
+    <div class="empty"><svg class="i"><use href="#i-search"/></svg><h3>No campaigns match</h3><p>Try a different search or clear the filters.</p></div>
+    {% else %}
+    <div class="empty"><svg class="i"><use href="#i-qr"/></svg><h3>No campaigns yet</h3><p>Create a campaign to get a branded link and a QR code you can send to the business.</p><a class="btn primary" href="{% url 'panel:campaign_new' %}">New campaign</a></div>
+    {% endif %}
+</section>
+{% endblock %}

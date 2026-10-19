@@ -1,0 +1,17 @@
+{% extends "panel/base.html" %}
+{% block content %}
+<a class="back-link" href="{% url 'panel:frames' %}"><svg class="i i-sm"><use href="#i-back"/></svg>Frames</a>
+<div class="page-head"><div><h1>Bulk upload</h1><p>Add public frames to a category, or leave the category empty for campaign-only frames.</p></div></div>
+<form method="post" enctype="multipart/form-data" class="card" style="max-width:720px">
+    {% csrf_token %}
+    <div class="card-body">
+        <div class="field"><label for="cat">Category <span class="aside">(optional)</span></label>
+            <select name="category" id="cat"><option value="">Campaign-only — not listed on the website</option>{% for c in categories %}<option value="{{ c.pk }}">{{ c.name }}</option>{% endfor %}</select>
+            <span class="help">Campaign-only frames can still be selected for a campaign and served through its branded link and QR code.</span></div>
+        <label class="drop"><svg class="i"><use href="#i-upload"/></svg><b>Drop PNG files here or click to browse</b><span>Transparent PNG frames, up to 10 MB each</span>
+            <input type="file" name="images" accept="image/*" multiple></label>
+        <ul class="file-list" id="fileList"></ul>
+    </div>
+    <div class="form-actions"><button class="btn primary" type="submit" id="uploadBtn" disabled><svg class="i i-sm"><use href="#i-upload"/></svg><span>Upload frames</span></button><a class="btn" href="{% url 'panel:frames' %}">Cancel</a></div>
+</form>
+{% endblock %}

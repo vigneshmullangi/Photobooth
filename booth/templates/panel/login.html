@@ -1,0 +1,35 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sign in &middot; Photobooth Admin</title>
+    <link rel="icon" href="{% static 'booth/favicon.svg' %}">
+    <link rel="stylesheet" href="{% static 'panel/panel.css' %}">
+</head>
+<body>
+<div class="login">
+    <section class="login-art">
+        <div class="side-brand"><span class="logo-mark"></span><span><b>Photobooth</b><small>Admin</small></span></div>
+        <div>
+            <h2>Run every campaign from one place.</h2>
+            <p>Create branded campaigns, download their QR codes, manage frames and answer new inquiries as they arrive.</p>
+        </div>
+        <small>Authorised staff only.</small>
+        <span class="ring"></span><span class="ring two"></span>
+    </section>
+    <section class="login-form">
+        <form method="post" novalidate>
+            {% csrf_token %}
+            <h1>Sign in</h1>
+            <p class="lead">Use your staff account to continue.</p>
+            {% if form.non_field_errors %}<div class="form-error">{{ form.non_field_errors|join:" " }}</div>{% endif %}
+            <input type="hidden" name="next" value="{{ next }}">
+            <div class="field"><label for="id_username">Username</label><input type="text" name="username" id="id_username" autocomplete="username" autofocus required value="{{ form.username.value|default:'' }}"></div>
+            <div class="field"><label for="id_password">Password</label><input type="password" name="password" id="id_password" autocomplete="current-password" required></div>
+            <button class="btn dark" type="submit">Sign in</button>
+        </form>
+    </section>
+</div>
+</body>
+</html>

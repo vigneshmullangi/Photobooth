@@ -1,0 +1,603 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f6f2ea">
+    <meta name="csrf" content="{{ csrf_token }}">
+    <title>Photobooth - Instant frames and photo strips</title>
+    <link rel="icon" href="{% static 'booth/favicon.svg' %}" type="image/svg+xml">
+    <link rel="stylesheet" href="{% static 'booth/style.css' %}?v=printer-selected-design-2">
+</head>
+<body{% if campaign %} class="campaign-mode"{% elif admin_studio %} class="admin-frame-designer"{% endif %}>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+        <symbol id="i-camera" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3.2"/></symbol>
+        <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></symbol>
+        <symbol id="i-flip" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.5 6.2L3 16M3 21v-5h5"/></symbol>
+        <symbol id="i-mirror" viewBox="0 0 24 24"><path d="M12 3v18M8 7 3 12l5 5V7zM16 7l5 5-5 5V7z"/></symbol>
+        <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></symbol>
+        <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></symbol>
+        <symbol id="i-redo" viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></symbol>
+        <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
+        <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.7 10.7 6.6-4.4M8.7 13.3l6.6 4.4"/></symbol>
+        <symbol id="i-bookmark" viewBox="0 0 24 24"><path d="M6 4.5A1.5 1.5 0 0 1 7.5 3h9A1.5 1.5 0 0 1 18 4.5V21l-6-4-6 4z"/></symbol>
+        <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></symbol>
+        <symbol id="i-bg" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="m21 15-4.5-4.5a2 2 0 0 0-2.8 0L5 19"/><circle cx="8.5" cy="8.5" r="1.5"/></symbol>
+        <symbol id="i-pattern" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+        <symbol id="i-sticker" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5"/><path d="M8 14s1.5 2.2 4 2.2 4-2.2 4-2.2M9 9.5h.01M15 9.5h.01"/></symbol>
+        <symbol id="i-text" viewBox="0 0 24 24"><path d="M4 7V5h16v2M9 20h6M12 5v15"/></symbol>
+        <symbol id="i-pen" viewBox="0 0 24 24"><path d="M17 3a2.8 2.8 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></symbol>
+        <symbol id="i-eraser" viewBox="0 0 24 24"><path d="m7 21-4.3-4.3a1 1 0 0 1 0-1.4l9.6-9.6a2 2 0 0 1 2.8 0l5.6 5.6a2 2 0 0 1 0 2.8L13 21M22 21H7M5 11l9 9"/></symbol>
+        <symbol id="i-filter" viewBox="0 0 24 24"><circle cx="9" cy="9" r="5.5"/><circle cx="15" cy="9" r="5.5"/><circle cx="12" cy="15" r="5.5"/></symbol>
+        <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/></symbol>
+        <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+    </defs>
+</svg>
+
+<header class="top">
+    <a class="brand" href="#" id="brand" aria-label="{{ campaign.brandName|default:'Photobooth' }}">
+        {% if campaign %}
+        <img class="brand-logo" src="{{ campaign.logoUrl }}" alt="">
+        <span id="brandName">{{ campaign.brandName }}</span>
+        {% else %}
+        <span class="mark"></span><span id="brandName">Photobooth</span>
+        {% endif %}
+    </a>
+    <a class="try-free-btn" id="tryFreeBtn" href="#try-free"{% if campaign %} hidden{% endif %}>Try for free</a>
+    <nav class="site-nav" id="siteNav" aria-label="Main navigation"{% if campaign %} hidden{% endif %}>
+        <a href="#v-home">Home</a>
+        <a href="#how-it-works">How it works</a>
+            <a href="#faq">FAQ</a>
+            <a href="#contact">Contact</a>
+            <a href="#studio" id="studioNavLink">Studio</a>
+        </nav>
+        <button class="nav-toggle" id="navToggle" type="button" aria-label="Open navigation menu" aria-controls="siteNav" aria-expanded="false"{% if campaign %} hidden{% endif %}>
+            <span></span><span></span><span></span>
+        </button>
+        <ol class="steps" id="steps" hidden>
+        <li data-s="1"><b>1</b>Choose</li>
+        <li data-s="2"><b>2</b>Capture</li>
+        <li data-s="3"><b>3</b>Customize</li>
+    </ol>
+</header>
+
+<main>
+    <section class="campaign-error" id="campaignError" role="alert" hidden>
+        <h1>This photo booth is temporarily unavailable.</h1>
+        <p>Please try again in a moment or contact the event organizer.</p>
+    </section>
+    <!-- 1. HOME -->
+    <section class="view on" id="v-home">
+        <div class="hero">
+            <p class="eyebrow">Online photo booth</p>
+            <h1>Photo strips and instant frames, <em>finished in minutes.</em></h1>
+            <p class="lead">Choose a layout, take your photos with a countdown, then style the result with colors, patterns, stickers, captions and filters. Photos stay on your device unless you choose to save one to the booth gallery.</p>
+        </div>
+
+        <div class="options" id="try-free">
+            <button class="opt" id="optInstant">
+                <div class="opt-art tint-a" id="artInstant"></div>
+                <div class="opt-body">
+                    <h2>Instant Frames</h2>
+                    <p>Clean one-shot frames with 1, 2, 3 or 4 photos. Quick to shoot, fully customizable.</p>
+                    <span class="go">Choose a frame <svg class="i"><use href="#i-back"/></svg></span>
+                </div>
+            </button>
+            <button class="opt" id="optStrip">
+                <div class="opt-art tint-b" id="artStrip"></div>
+                <div class="opt-body">
+                    <h2>Select your strip</h2>
+                    <p>Polished strip designs for 2, 3, or 4 photos. Choose a style and make it yours.</p>
+                    <span class="go">Browse strips <svg class="i"><use href="#i-back"/></svg></span>
+                </div>
+            </button>
+        </div>
+
+        <section class="live-booth-promo" aria-labelledby="liveBoothTitle">
+            <h2 class="section-title live-booth-main-title" id="liveBoothTitle">Different places. One moment.</h2>
+            <div class="live-booth-visual">
+                <figure class="live-booth-photo">
+                    <img src="/media/Join%20With%20a%20Code_%20Virtual%20Friends.png" alt="Friends joining a shared virtual photo booth from different places">
+                    <figcaption>One room. One shared moment.</figcaption>
+                </figure>
+            </div>
+            <div class="live-booth-copy">
+                <p class="eyebrow">New</p>
+                <h3 class="live-booth-label">Live booth</h3>
+                <h3>Join the room.<br>Make the memory together.</h3>
+                <p>Some people are across the table. Others are miles away. It shouldn't matter when there's a moment worth sharing.</p>
+                <p>Create a room, invite your people with a code, and bring everyone into the same virtual booth.</p>
+                <p class="live-booth-quote">One room. Everyone in the picture.</p>
+                <div class="live-room-cta">
+                    <p>Share a code and shoot one strip together, even from different places.</p>
+                    <div class="live-room-actions">
+                        <button class="btn primary" id="liveCreate" type="button"><svg class="i"><use href="#i-users"/></svg>Create a room</button>
+                        <button class="btn" id="liveJoin" type="button">Join with a code</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="server-frames" id="serverFrameSection" hidden>
+            <h2>Pick a frame, make it yours</h2>
+            <p class="saved-intro">Browse the collection and start creating.</p>
+            <div class="server-frame-browser" id="serverFrameBrowser">
+                <button class="server-frame-arrow" id="serverFramePrev" type="button" aria-label="Show previous frames">&lsaquo;</button>
+                <div class="choices" id="serverChoices"></div>
+                <button class="server-frame-arrow" id="serverFrameNext" type="button" aria-label="Show more frames">&rsaquo;</button>
+            </div>
+        </section>
+
+        <section class="saved-section" id="savedSection" hidden>
+            <h2>Saved templates</h2>
+            <p class="saved-intro">Start a new photo session from a saved layout, or edit the layout in Studio.</p>
+            <div class="saved-list" id="savedTemplates"></div>
+        </section>
+
+        <section class="how-section" id="how-it-works" aria-labelledby="howTitle">
+            <p class="eyebrow">How it works</p>
+            <h2 class="section-title" id="howTitle">A great photo moment, in four simple steps.</h2>
+            <ol class="how-steps" id="howSteps">
+                <li class="how-card" style="--d:0ms">
+                    <span class="how-num">1</span>
+                    <span class="how-icon"><svg class="i"><use href="#i-bg"/></svg></span>
+                    <h3>Choose</h3>
+                    <p>Pick a frame, photo strip or festive template for your moment.</p>
+                </li>
+                <li class="how-card" style="--d:140ms">
+                    <span class="how-num">2</span>
+                    <span class="how-icon"><svg class="i"><use href="#i-camera"/></svg></span>
+                    <h3>Capture</h3>
+                    <p>Smile at the countdown, or upload photos you already have.</p>
+                </li>
+                <li class="how-card" style="--d:280ms">
+                    <span class="how-num">3</span>
+                    <span class="how-icon"><svg class="i"><use href="#i-text"/></svg></span>
+                    <h3>Personalize</h3>
+                    <p>Add your own names, year or date, plus stickers and filters.</p>
+                </li>
+                <li class="how-card" style="--d:420ms">
+                    <span class="how-num">4</span>
+                    <span class="how-icon"><svg class="i"><use href="#i-download"/></svg></span>
+                    <h3>Download &amp; share</h3>
+                    <p>Save it in high quality and share it with friends in a tap.</p>
+                </li>
+            </ol>
+        </section>
+
+        <section class="contact" id="contact" aria-labelledby="contactTitle">
+            <div class="contact-copy">
+                <p class="eyebrow">Contact</p>
+                <h2 class="section-title" id="contactTitle">Questions, or a custom campaign?</h2>
+                <p class="contact-intro">Have a question about our virtual photo booths, or want a booth designed for your event? Tell us about it and we will get back to you.</p>
+                <p class="contact-label">Custom campaigns for</p>
+                <ul class="contact-tags" aria-label="Campaign types">
+                    <li>Brand Promotion</li>
+                    <li>Wedding or Birthday</li>
+                    <li>Corporate Events</li>
+                    <li>Festivals &amp; Holidays</li>
+                    <li>Schools &amp; Colleges</li>
+                    <li>Sports &amp; Entertainment</li>
+                    <li>Travel &amp; Tourism</li>
+                </ul>
+                <ol class="contact-steps">
+                    <li><b>1</b><span><strong>Tell us</strong>Share your event, audience and goals.</span></li>
+                    <li><b>2</b><span><strong>We design</strong>Branded frames, colours, stickers and captions.</span></li>
+                    <li><b>3</b><span><strong>You launch</strong>Share the booth with your guests and let them create.</span></li>
+                </ol>
+            </div>
+            <form class="contact-form" id="contactForm">
+                <input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
+                <label class="contact-field contact-field-full">
+                    <span>Name</span>
+                    <input type="text" name="name" autocomplete="name" placeholder="Your name" required>
+                </label>
+                <label class="contact-field">
+                    <span>Email</span>
+                    <input type="email" name="email" autocomplete="email" placeholder="you@example.com" required>
+                </label>
+                <label class="contact-field">
+                    <span>Phone <small>(optional)</small></span>
+                    <input type="tel" name="phone" autocomplete="tel" placeholder="+91 98765 43210">
+                </label>
+                <label class="contact-field">
+                    <span>I am interested in</span>
+                    <select name="interest">
+                        <option>General question</option>
+                        <option>Brand promotion</option>
+                        <option>Wedding or birthday</option>
+                        <option>Corporate event</option>
+                        <option>Festival or holiday</option>
+                        <option>School or college</option>
+                        <option>Other event</option>
+                    </select>
+                </label>
+                <label class="contact-field">
+                    <span>Event date <small>(optional)</small></span>
+                    <input type="date" name="event_date">
+                </label>
+                <label class="contact-field contact-field-full">
+                    <span>Message</span>
+                    <textarea name="message" rows="5" placeholder="Tell us about your question or campaign" required></textarea>
+                </label>
+                <button class="btn primary contact-submit" type="submit">Send message</button>
+                <p class="contact-status" id="contactStatus" role="status" aria-live="polite">We usually reply within one working day.</p>
+            </form>
+        </section>
+    </section>
+
+    <section class="view faq-view" id="v-faq">
+        <section class="faq-section" id="faq" aria-labelledby="faqTitle">
+            <div class="faq-heading">
+                <div>
+                    <p class="eyebrow">Frequently asked questions</p>
+                    <h2 class="section-title" id="faqTitle">Everything you need to know about your virtual booth.</h2>
+                </div>
+                <p class="faq-intro">A simple, phone-friendly experience for your customers, with your brand front and center.</p>
+            </div>
+            <div class="faq-list">
+                <details>
+                    <summary><span class="faq-number" aria-hidden="true">01</span><span>What is a Virtual Photo Booth?</span></summary>
+                    <p>It is a simple photo-taking link that opens right on your phone screen. Customers can take branded photos and photo strips anywhere, anytime, without any heavy photo machine.</p>
+                </details>
+                <details>
+                    <summary><span class="faq-number" aria-hidden="true">02</span><span>Do users need to download an app?</span></summary>
+                    <p>No. There is no app to download and no login needed. It opens instantly in regular web browsers like Chrome or Safari.</p>
+                </details>
+                <details>
+                    <summary><span class="faq-number" aria-hidden="true">03</span><span>How do customers open the booth?</span></summary>
+                    <p>They just scan the QR code placed on your shop counter, desk, or event screen using their normal phone camera.</p>
+                </details>
+                <details>
+                    <summary><span class="faq-number" aria-hidden="true">04</span><span>What physical equipment do we need?</span></summary>
+                    <p>None. You only need to print and place your QR code stand. Customers use their own smartphones to click and save photos.</p>
+                </details>
+                <details>
+                    <summary><span class="faq-number" aria-hidden="true">05</span><span>Can we customize the branding and details?</span></summary>
+                    <p>Yes. We customize the photo strip templates with your company logo, business name, phone number, address, and brand colors.</p>
+                </details>
+                <details>
+                    <summary><span class="faq-number" aria-hidden="true">06</span><span>How do customers get their final photos?</span></summary>
+                    <p>Right after taking the picture, the finished photo strip shows on their phone screen. They can save it straight to their gallery with one tap or share it on WhatsApp and Instagram.</p>
+                </details>
+                <details>
+                    <summary><span class="faq-number" aria-hidden="true">07</span><span>Where can this booth be used?</span></summary>
+                    <p>You can use it in retail shops, offices, customer lounges, studios, product launches, corporate events, and parties to promote your brand.</p>
+                </details>
+                <details>
+                    <summary><span class="faq-number" aria-hidden="true">08</span><span>How is customer privacy and photo storage handled?</span></summary>
+                    <p>Photos are processed directly on the customer’s phone. We do not keep or misuse personal photos on external servers unless you specifically request an admin gallery.</p>
+                </details>
+                <details>
+                    <summary><span class="faq-number" aria-hidden="true">09</span><span>How does the live booth work?</span></summary>
+                    <ol class="faq-steps">
+                        <li>You place your printed QR code on your counter or table.</li>
+                        <li>The customer scans the QR code with their mobile phone.</li>
+                        <li>The camera opens instantly on their screen with your branded frame.</li>
+                        <li>The customer takes photos, and the system instantly creates their personalized photo strip.</li>
+                        <li>The customer saves the photo to their phone and shares it with friends.</li>
+                    </ol>
+                </details>
+                <details>
+                    <summary><span class="faq-number" aria-hidden="true">10</span><span>What should a business do to get started?</span></summary>
+                    <p>Simply <a href="#contact" id="faqContactLink">contact us through our website</a>. Share your logo, company name, phone number, and requirements, and we will set up your custom booth and QR code right away.</p>
+                </details>
+            </div>
+        </section>
+    </section>
+
+    <section class="view all-frames-view" id="v-frames" aria-labelledby="allFramesTitle">
+        <button class="link" id="backToFrames" type="button"><svg class="i"><use href="#i-back"/></svg>Back to booth</button>
+        <div class="all-frames-heading">
+            <div>
+                <h1 class="title" id="allFramesTitle">Pick a frame, make it yours</h1>
+                <p class="sub">Browse the collection and start creating.</p>
+            </div>
+        </div>
+        <div class="all-frames-grid choices" id="allFramesGrid"></div>
+    </section>
+
+    <!-- 2. CHOOSE -->
+    <section class="view" id="v-choose">
+        <button class="link" data-back="home"><svg class="i"><use href="#i-back"/></svg>Back</button>
+        <h2 class="title" id="chooseTitle"></h2>
+        <p class="sub" id="chooseSub"></p>
+        <div class="strip-count-picker" id="stripCountPicker" hidden role="group" aria-label="Number of photos in strip">
+            <span>Photos per strip</span>
+            <div class="strip-count-options">
+                <button type="button" data-strip-count="2" aria-pressed="false">2 photos</button>
+                <button type="button" data-strip-count="3" aria-pressed="true">3 photos</button>
+                <button type="button" data-strip-count="4" aria-pressed="false">4 photos</button>
+            </div>
+        </div>
+        <div class="strip-browser" id="stripBrowser">
+            <button class="strip-arrow" id="stripPrev" type="button" aria-label="Scroll to previous strips">&lsaquo;</button>
+            <div class="choices" id="choices"></div>
+            <button class="strip-arrow" id="stripNext" type="button" aria-label="Scroll to next strips">&rsaquo;</button>
+        </div>
+    </section>
+
+    <!-- 3. CAPTURE -->
+    <section class="view" id="v-capture">
+        <div class="cap-head">
+            <button class="link" id="capBack"><svg class="i"><use href="#i-back"/></svg>Back</button>
+            <div class="cap-title"><b id="capName"></b><span id="capCount"></span></div>
+            <span class="cap-spacer"></span>
+        </div>
+
+        <div class="cam" id="cam">
+            <video id="vid" playsinline muted autoplay></video>
+            <canvas class="cam-frame" id="camFrame" hidden></canvas>
+            <div class="cd" id="cd"></div>
+            <div class="shutter" id="shutter"></div>
+            <div class="cam-msg" id="camMsg" hidden></div>
+            <div class="zoombar" id="zoomBar"></div>
+        </div>
+
+        <div class="slots" id="slots"></div>
+
+        <div class="ctl">
+            <div class="seg" id="timers" aria-label="Timer"></div>
+            <button class="tog" id="flipBtn" title="Switch camera"><svg class="i"><use href="#i-flip"/></svg><span>Flip</span></button>
+            <button class="tog on" id="mirBtn" title="Mirror selfie"><svg class="i"><use href="#i-mirror"/></svg><span>Mirror</span></button>
+            <button class="tog" id="flashBtn" title="Screen flash"><svg class="i"><use href="#i-zap"/></svg><span>Flash</span></button>
+            <button class="tog" id="upBtn" title="Upload photos"><svg class="i"><use href="#i-upload"/></svg><span>Upload</span></button>
+        </div>
+        <div class="shoot">
+            <button class="btn ghost" id="resetBtn" hidden>Start over</button>
+            <button class="btn primary big" id="shootBtn"><svg class="i"><use href="#i-camera"/></svg><span id="shootLbl">Capture</span></button>
+        </div>
+        <input type="file" id="upIn" accept="image/*" multiple hidden>
+    </section>
+
+    <!-- 4. RESULT -->
+    <section class="view" id="v-result">
+        <div class="res">
+            <div class="res-art"><canvas id="resCv"></canvas></div>
+            <div class="res-side">
+                <p class="eyebrow">Step 3</p>
+                <h2 class="title">Looking good.</h2>
+                <p class="sub">Your photos are ready. Customize your frame, save a copy, or share it with friends.</p>
+                <div class="res-btns">
+                    <button class="btn primary big" id="custBtn"><svg class="i"><use href="#i-pen"/></svg>Customize</button>
+                    <button class="btn big" id="resDl"><svg class="i"><use href="#i-download"/></svg>Download</button>
+                    <button class="btn big" id="shareBtn"><svg class="i"><use href="#i-share"/></svg>Share</button>
+                    <button class="btn ghost" id="retakeBtn"><svg class="i"><use href="#i-camera"/></svg>Retake photos</button>
+                </div>
+            </div>
+        </div>
+    </section>
+</main>
+
+<!-- 5. STUDIO -->
+<div class="studio" id="v-studio" hidden>
+    <header class="s-top">
+        <button class="btn ghost" id="sBack"><svg class="i"><use href="#i-back"/></svg><span>Back</span></button>
+        <b class="s-title">Customize</b>
+        <div class="s-actions">
+            <button class="ib" id="undoBtn" title="Undo (Ctrl+Z)" aria-label="Undo"><svg class="i"><use href="#i-undo"/></svg></button>
+            <button class="ib" id="redoBtn" title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><svg class="i"><use href="#i-redo"/></svg></button>
+            <button class="btn" id="sShare" title="Share template" aria-label="Share template"><svg class="i"><use href="#i-share"/></svg><span>Share</span></button>
+            <button class="btn primary" id="dlBtn"><svg class="i"><use href="#i-download"/></svg><span>Download</span></button>
+            <button class="btn" id="sSave" title="Save template" aria-label="Save template"><svg class="i"><use href="#i-bookmark"/></svg><span>Save template</span></button>
+        </div>
+    </header>
+
+    <div class="s-body">
+        <nav class="rail" id="rail">
+            <button data-tab="text"><svg class="i"><use href="#i-text"/></svg><span>Text</span></button>
+            <button data-tab="draw"><svg class="i"><use href="#i-pen"/></svg><span>Draw</span></button>
+            <button data-tab="filters"><svg class="i"><use href="#i-filter"/></svg><span>Filters</span></button>
+            <button data-tab="uploads"><svg class="i"><use href="#i-upload"/></svg><span>Uploads</span></button>
+            <button data-tab="pattern"><svg class="i"><use href="#i-pattern"/></svg><span>Pattern</span></button>
+            <button data-tab="bg" class="on"><svg class="i"><use href="#i-bg"/></svg><span>Background</span></button>
+            <button data-tab="stickers"><svg class="i"><use href="#i-sticker"/></svg><span>Stickers</span></button>
+        </nav>
+
+        <aside class="panel" id="panel">
+            <!-- Background -->
+            <div class="pane on" id="p-bg">
+                <h3>Frame colour</h3>
+                <div class="sw-grid" id="bgColors"></div>
+                <label class="custom">Custom colour <input type="color" id="bgCustom" value="#ffffff"></label>
+                <h3>Gradients</h3>
+                <div class="sw-grid" id="bgGrads"></div>
+                <h3>Background frames</h3>
+                <p class="hint bg-frame-intro">Choose a design to fill the space behind your photos.</p>
+                <div class="tiles bg-frame-grid" id="bgFrameGrid" aria-label="Background frame designs"></div>
+                <h3>Background image</h3>
+                <button class="btn ghost" id="bgRemove" hidden>Remove background image</button>
+                <p class="hint">Add or replace background images from Uploads. The image fills the frame behind your photos.</p>
+                <div id="bgZoomBox" hidden>
+                    <label class="range">Zoom <input type="range" id="bgZoom" min="50" max="400" value="100"></label>
+                    <p class="hint">Zoom out to reveal the frame colour around the image. Drag the preview to reposition it.</p>
+                    <button class="btn sm" id="bgReset" style="margin-top:10px">Reset position</button>
+                </div>
+            </div>
+
+            <!-- Pattern -->
+            <div class="pane" id="p-pattern">
+                <h3>Frame pattern</h3>
+                <div class="tiles" id="patGrid"></div>
+                <h3>Pattern colour</h3>
+                <div class="sw-grid" id="patColors"></div>
+                <label class="custom">Custom colour <input type="color" id="patCustom" value="#e4492b"></label>
+                <label class="range">Opacity <input type="range" id="patAlpha" min="5" max="100" value="14"></label>
+                <label class="range">Size <input type="range" id="patSize" min="50" max="200" value="100"></label>
+            </div>
+
+            <!-- Stickers -->
+            <div class="pane" id="p-stickers">
+                <h3>Stickers</h3>
+                <div class="chips" id="stkCats"></div>
+                <div class="stk-grid" id="stkGrid"></div>
+                <div class="stk-ctl" id="stkCtl" hidden>
+                    <h3>Selected sticker</h3>
+                    <div class="row">
+                        <button class="btn sm" id="stkSmall">Smaller</button>
+                        <button class="btn sm" id="stkBig">Bigger</button>
+                        <button class="btn sm" id="stkRot">Rotate</button>
+                        <button class="btn sm" id="stkDuplicate" hidden>Duplicate</button>
+                        <button class="btn sm danger" id="stkDel"><svg class="i"><use href="#i-trash"/></svg>Delete</button>
+                    </div>
+                </div>
+                <p class="hint">Tap a sticker to add it, then drag to move. Use the round handle on its corner to resize and rotate.</p>
+            </div>
+
+            <!-- Text -->
+            <div class="pane" id="p-text">
+                <section class="strip-style-tools" id="stripStyleTools" hidden>
+                    <h3>Photo strip style</h3>
+                    <p class="hint">Switch the strip design while keeping your captured photos and edits.</p>
+                    <div class="strip-style-grid" id="stripStyleGrid" role="group" aria-label="Photo strip styles"></div>
+                    <hr>
+                </section>
+                <section class="photo-window-tools" id="photoWindowTools">
+                    <h3>Camera frame</h3>
+                    <p class="hint">Choose how many photos your frame holds.</p>
+                    <div class="camera-frame-choices" id="cameraFrameChoices" role="group" aria-label="Choose camera frame layout"></div>
+                    <p class="hint camera-frame-edit-hint">Choose a layout, select a window, then move, resize, remove, or change its shape.</p>
+                    <div class="photo-window-fields" id="photoWindowFields"></div>
+                    <hr>
+                </section>
+                <section class="server-text-tools" id="serverTextTools" hidden>
+                    <h3>Personalize your frame</h3>
+                    <p class="hint">Edit each field, then drag it on the preview to place it. Format text with the controls below.</p>
+                    <div class="server-text-fields" id="serverTextFields"></div>
+                    <button class="link te-reset" id="serverTextReset" type="button">Reset frame fields</button>
+                    <hr>
+                </section>
+                <h3>Text</h3>
+                <p class="hint">Add a text style, type in its panel field, or double-click it on the canvas to edit. Press Shift+Enter for a new line. Duplicate text or uploaded images from their controls.</p>
+                <div class="text-add-presets" role="group" aria-label="Add styled text">
+                    <button class="text-preset heading" id="addHeading" type="button"><b>Heading</b><small>Add a heading</small></button>
+                    <button class="text-preset subheading" id="addSubheading" type="button"><b>Subheading</b><small>Add a subheading</small></button>
+                    <button class="text-preset body" id="addBodyText" type="button"><b>Body text</b><small>Add body text</small></button>
+                </div>
+                <div id="captionFields" class="caption-fields"></div>
+                <h3>Text style</h3>
+                <div class="text-format-toolbar" role="group" aria-label="Text formatting">
+                    <label class="text-format-select">
+                        <select id="textFont" aria-label="Font family"></select>
+                    </label>
+                    <label class="text-format-select text-format-size">
+                        <div class="text-size-control"><button id="textSizeDown" type="button" aria-label="Decrease font size">−</button><select id="textSize" aria-label="Font size"></select><button id="textSizeUp" type="button" aria-label="Increase font size">+</button></div>
+                    </label>
+                    <button class="format-toggle" id="textBold" type="button" aria-label="Bold" aria-pressed="false" title="Bold"><b>B</b></button>
+                    <button class="format-toggle italic" id="textItalic" type="button" aria-label="Italic" aria-pressed="false" title="Italic"><i>I</i></button>
+                    <button class="format-toggle underline" id="textUnderline" type="button" aria-label="Underline" aria-pressed="false" title="Underline">U</button>
+                    <div class="text-align-tools" role="group" aria-label="Text alignment"><button class="format-toggle" id="textAlignLeft" type="button" aria-label="Align left" title="Align left"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 10h10M4 14h16M4 18h10"/></svg></button><button class="format-toggle" id="textAlignCenter" type="button" aria-label="Align center" title="Align center"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 10h10M4 14h16M7 18h10"/></svg></button><button class="format-toggle" id="textAlignRight" type="button" aria-label="Align right" title="Align right"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M10 10h10M4 14h16M10 18h10"/></svg></button></div>
+                </div>
+                <label class="text-rotation-control">
+                    <span>Rotate selected text</span>
+                    <input type="range" id="textRotation" min="-180" max="180" step="1" value="0" aria-label="Rotate selected text">
+                    <output id="textRotationValue">0°</output>
+                </label>
+                <h3>Text colour</h3>
+                <div class="sw-grid" id="txtColors"></div>
+                <label class="custom">Custom colour <input type="color" id="txtCustom" value="#1c1b19"></label>
+                <h3>Date</h3>
+                <label class="check"><input type="checkbox" id="dateOn"> Show date</label>
+                <div class="text-object-control"><input type="date" id="dateIn"><button class="text-object-action" id="rotateDate" type="button" aria-label="Rotate date">↻</button><button class="text-object-action text-object-remove" id="removeDate" type="button" aria-label="Remove date">×</button></div>
+                <h3>Location</h3>
+                <div class="text-object-control"><input type="text" id="locationIn" maxlength="40" placeholder="Add a location (optional)"><button class="text-object-action" id="rotateLocation" type="button" aria-label="Rotate location">↻</button><button class="text-object-action text-object-remove" id="removeLocation" type="button" aria-label="Remove location">×</button></div>
+            </div>
+
+            <!-- Draw -->
+            <div class="pane" id="p-draw">
+                <h3>Tool</h3>
+                <div class="seg wide" id="toolSeg">
+                    <button data-t="pen" class="on"><svg class="i"><use href="#i-pen"/></svg>Draw</button>
+                    <button data-t="eraser"><svg class="i"><use href="#i-eraser"/></svg>Erase</button>
+                </div>
+                <div id="penOpts">
+                    <h3>Colour</h3>
+                    <div class="sw-grid" id="penColors"></div>
+                    <label class="custom">Custom colour <input type="color" id="penCustom" value="#e4492b"></label>
+                </div>
+                <label class="range">Brush size <input type="range" id="penSize" min="2" max="60" value="10"></label>
+                <div class="row">
+                    <button class="btn sm" id="dUndo"><svg class="i"><use href="#i-undo"/></svg>Undo</button>
+                    <button class="btn sm" id="dRedo"><svg class="i"><use href="#i-redo"/></svg>Redo</button>
+                    <button class="btn sm danger" id="dClear">Clear all</button>
+                </div>
+                <p class="hint">Draw directly on the preview. The eraser only removes your drawing, never your photos.</p>
+            </div>
+
+            <!-- Filters -->
+            <div class="pane" id="p-filters">
+                <h3>Photo filters</h3>
+                <div class="tiles" id="fltGrid"></div>
+                <p class="hint">Filters apply to all photos in the frame.</p>
+            </div>
+
+            <!-- Uploads -->
+            <div class="pane" id="p-uploads">
+                <h3>Uploads</h3>
+                <p class="hint">Add images to your design here. Uploaded artwork stays editable on the canvas.</p>
+                <section class="upload-section">
+                    <h3>Logo or brand image</h3>
+                    <p class="hint">Upload a PNG, JPG, or WebP. Plain backgrounds are removed automatically.</p>
+                    <button class="btn" id="logoUpload" type="button"><svg class="i"><use href="#i-upload"/></svg>Upload logo or image</button>
+                    <button class="btn sm" id="replaceLogo" type="button" hidden>Replace selected image</button>
+                    <input type="file" id="logoFile" accept="image/png,image/jpeg,image/webp" hidden>
+                </section>
+                <section class="upload-section">
+                    <h3>Background image</h3>
+                    <p class="hint">Choose an image to fill the frame behind your photos.</p>
+                    <button class="btn" id="bgUpload" type="button"><svg class="i"><use href="#i-upload"/></svg>Upload background</button>
+                    <input type="file" id="bgFile" accept="image/*" hidden>
+                </section>
+                <section class="upload-section" id="serverUploadTools" hidden>
+                    <h3>Frame image fields</h3>
+                    <p class="hint">Replace the image fields included with this frame.</p>
+                    <div class="server-text-fields" id="serverUploadFields"></div>
+                </section>
+            </div>
+        </aside>
+
+        <div class="stage" id="stage"><canvas id="cv"></canvas></div>
+    </div>
+</div>
+
+<div id="toast" role="status"></div>
+<dialog class="template-dialog" id="templateDialog" aria-labelledby="templateDialogTitle">
+    <div class="template-dialog-head">
+        <div><p class="eyebrow">Saved template</p><h2 id="templateDialogTitle"></h2></div>
+        <button class="ib" id="templateDialogClose" type="button" aria-label="Close preview">&times;</button>
+    </div>
+    <div class="template-preview-art"><canvas id="templatePreviewCanvas"></canvas></div>
+    <div class="template-dialog-actions">
+        <button class="btn" id="templateDialogRemove" type="button">Remove</button>
+        <button class="btn primary" id="templateDialogUse" type="button">Use template</button>
+    </div>
+</dialog>
+<dialog class="confirm-dialog" id="deleteTemplateDialog" aria-labelledby="deleteTemplateTitle" aria-describedby="deleteTemplateMessage">
+    <div class="confirm-icon" aria-hidden="true">!</div>
+    <p class="eyebrow">Delete saved template</p>
+    <h2 id="deleteTemplateTitle">Are you sure?</h2>
+    <p class="confirm-message" id="deleteTemplateMessage">You’re about to delete <strong id="deleteTemplateName"></strong>. This can’t be undone.</p>
+    <div class="confirm-actions">
+        <button class="btn" id="deleteTemplateCancel" type="button">Cancel</button>
+        <button class="btn delete-confirm" id="deleteTemplateConfirm" type="button">Delete template</button>
+    </div>
+</dialog>
+<dialog class="confirm-dialog admin-frame-save-dialog" id="adminFrameSaveDialog" aria-labelledby="adminFrameSaveTitle">
+    <p class="eyebrow">Admin Studio</p>
+    <h2 id="adminFrameSaveTitle">Save campaign frame</h2>
+    <label class="admin-frame-name">Frame name<input id="adminFrameName" type="text" maxlength="120" required></label>
+    <p class="admin-frame-save-error" id="adminFrameSaveError" role="alert" hidden></p>
+    <div class="confirm-actions">
+        <button class="btn" id="adminFrameSaveCancel" type="button">Cancel</button>
+        <button class="btn primary" id="adminFrameSaveConfirm" type="button">Save frame</button>
+    </div>
+</dialog>
+{{ campaign|json_script:"campaignConfig" }}
+{{ studio_backgrounds|json_script:"studioBackgrounds" }}
+{{ admin_studio_config|json_script:"adminStudioConfig" }}
+<script src="{% static 'booth/app.js' %}?v=printer-selected-design-2"></script>
+<script src="{% static 'booth/live.js' %}"></script>
+</body>
+</html>

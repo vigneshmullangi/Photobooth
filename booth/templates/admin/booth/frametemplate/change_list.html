@@ -1,0 +1,5 @@
+{% extends "admin/change_list.html" %}
+{% block object-tools-items %}
+<li><a href="{% url 'admin:booth_frametemplate_bulk_upload' %}" class="addlink">Bulk upload frames</a></li>
+{{ block.super }}
+{% endblock %}

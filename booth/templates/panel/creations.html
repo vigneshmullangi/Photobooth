@@ -1,0 +1,28 @@
+{% extends "panel/base.html" %}
+{% block content %}
+<div class="page-head"><div><h1>Gallery</h1><p>Finished pictures guests chose to save to the booth gallery.</p></div></div>
+<form class="toolbar" method="get">
+    <select name="category" aria-label="Category" onchange="this.form.submit()">
+        <option value="">All categories</option>
+        {% for c in categories %}<option value="{{ c.pk }}"{% if category == c.pk|stringformat:"s" %} selected{% endif %}>{{ c.name }}</option>{% endfor %}
+    </select>
+    {% if category %}<a class="btn sm" href="{% url 'panel:creations' %}">Clear</a>{% endif %}
+</form>
+{% if page.object_list %}
+<div class="tiles">
+    {% for c in page.object_list %}
+    <article class="tile">
+        <a class="media checker" href="{{ c.image.url }}" target="_blank" rel="noopener"><img src="{{ c.image.url }}" alt="Picture {{ c.pk }}" loading="lazy"></a>
+        <div class="meta"><b>{{ c.template.name|default:"Frame removed" }}</b><div class="line"><span>{{ c.created|date:"d M Y, H:i" }}</span></div></div>
+        <div class="tile-actions">
+            <a class="btn sm" style="flex:1" href="{{ c.image.url }}" download><svg class="i i-sm"><use href="#i-download"/></svg>Download</a>
+            <form method="post" action="{% url 'panel:creation_delete' c.pk %}" data-confirm="This picture will be removed from the gallery." data-confirm-title="Delete picture?">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn sm danger" aria-label="Delete picture"><svg class="i i-sm"><use href="#i-trash"/></svg></button></form>
+        </div>
+    </article>
+    {% endfor %}
+</div>
+<div class="card" style="margin-top:16px">{% include "panel/_pager.html" %}</div>
+{% else %}
+<section class="card"><div class="empty"><svg class="i"><use href="#i-image"/></svg><h3>The gallery is empty</h3><p>Pictures appear here when guests tick "Also save a copy to the booth gallery".</p></div></section>
+{% endif %}
+{% endblock %}

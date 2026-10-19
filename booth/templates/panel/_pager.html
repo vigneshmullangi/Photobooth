@@ -1,0 +1,12 @@
+{% if page.paginator.num_pages > 1 or page.paginator.count %}
+<div class="pager">
+    <span>{{ page.start_index }}&ndash;{{ page.end_index }} of {{ page.paginator.count }}</span>
+    {% if page.paginator.num_pages > 1 %}
+    <div class="spacer">
+        {% if page.has_previous %}<a class="btn sm" href="?{% if qs_params %}{{ qs_params }}&amp;{% endif %}page={{ page.previous_page_number }}"><svg class="i i-sm"><use href="#i-back"/></svg>Previous</a>{% endif %}
+        <span style="align-self:center">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+        {% if page.has_next %}<a class="btn sm" href="?{% if qs_params %}{{ qs_params }}&amp;{% endif %}page={{ page.next_page_number }}">Next<svg class="i i-sm"><use href="#i-next"/></svg></a>{% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endif %}

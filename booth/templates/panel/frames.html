@@ -1,0 +1,69 @@
+{% extends "panel/base.html" %}
+{% block content %}
+<div class="page-head">
+    <div><h1>Frames</h1><p>Overlays guests place their photos into. Transparent areas become photo windows.</p></div>
+    <div class="actions">
+        <a class="btn" href="{% url 'panel:frame_designer' %}"><svg class="i i-sm"><use href="#i-pen"/></svg>Design with Studio</a>
+        <a class="btn" href="{% url 'panel:frames_bulk' %}"><svg class="i i-sm"><use href="#i-upload"/></svg>Bulk upload</a>
+        <a class="btn primary" href="{% url 'panel:frame_new' %}"><svg class="i i-sm"><use href="#i-plus"/></svg>Add frame</a>
+    </div>
+</div>
+
+<form class="toolbar" method="get">
+    <div class="search"><svg class="i"><use href="#i-search"/></svg><input type="search" name="q" value="{{ q }}" placeholder="Search frames" aria-label="Search frames"></div>
+    <select name="category" aria-label="Category" onchange="this.form.submit()">
+        <option value="">All categories</option>
+        {% for c in categories %}<option value="{{ c.pk }}"{% if category == c.pk|stringformat:"s" %} selected{% endif %}>{{ c.name }}</option>{% endfor %}
+    </select>
+    <select name="status" aria-label="Visibility" onchange="this.form.submit()">
+        <option value="">All frames</option>
+        <option value="active"{% if status == 'active' %} selected{% endif %}>Visible</option>
+        <option value="hidden"{% if status == 'hidden' %} selected{% endif %}>Hidden</option>
+    </select>
+    {% if q or category or status %}<a class="btn sm" href="{% url 'panel:frames' %}">Clear</a>{% endif %}
+    {% if page.object_list %}<button type="button" class="btn sm" id="selectAll" style="margin-left:auto">Select all on page</button>{% endif %}
+</form>
+
+{% if page.object_list %}
+<form method="post" action="{% url 'panel:frames_action' %}" id="bulkForm">{% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <div class="tiles">
+        {% for f in page.object_list %}
+        <article class="tile{% if not f.is_active %} is-hidden{% endif %}">
+            <label class="pick" title="Select"><input type="checkbox" name="ids" value="{{ f.pk }}" aria-label="Select {{ f.name }}"></label>
+            <a class="media checker" href="{% url 'panel:frame_edit' f.pk %}"><img src="{{ f.image.url }}" alt="{{ f.name }}" loading="lazy"></a>
+            <div class="meta">
+                <b title="{{ f.name }}">{{ f.name }}</b>
+                <div class="line"><span>{% if f.category %}{{ f.category.name }}{% else %}Campaign-only{% endif %}</span><span>&middot;</span><span>{{ f.n_slots }} photo{{ f.n_slots|pluralize }}</span></div>
+                <div class="line">
+                    {% if not f.category %}
+                        <span class="pill info">Campaign-only</span>{% if not f.is_active %}<span class="pill off">Inactive</span>{% endif %}
+                    {% elif f.is_active %}<span class="pill ok">Visible</span>{% else %}<span class="pill off">Hidden</span>{% endif %}
+                </div>
+            </div>
+            <div class="tile-actions"><a class="btn sm block" href="{% url 'panel:frame_edit' f.pk %}"><svg class="i i-sm"><use href="#i-edit"/></svg>Edit</a></div>
+        </article>
+        {% endfor %}
+    </div>
+    <div class="bulkbar" id="bulkBar" hidden>
+        <span class="count">0 selected</span>
+        <select name="action" aria-label="Action">
+            <option value="">Choose action</option>
+            <option value="show">Activate</option>
+            <option value="hide">Deactivate</option>
+            <option value="duplicate">Duplicate</option>
+            <option value="redetect">Re-detect photo windows</option>
+            <option value="fix">Remove fake checkerboard</option>
+            <option value="delete">Delete</option>
+        </select>
+        <button class="btn" type="submit">Apply</button>
+        <span class="spacer"></span><button type="button" class="link-btn" id="clearSel">Clear selection</button>
+    </div>
+</form>
+<div class="card" style="margin-top:16px">{% include "panel/_pager.html" %}</div>
+{% elif q or category or status %}
+<section class="card"><div class="empty"><svg class="i"><use href="#i-search"/></svg><h3>No frames match</h3><p>Try a different search or clear the filters.</p></div></section>
+{% else %}
+<section class="card"><div class="empty"><svg class="i"><use href="#i-frame"/></svg><h3>No frames yet</h3><p>Upload transparent PNG frames to get started.</p><a class="btn primary" href="{% url 'panel:frames_bulk' %}">Upload frames</a></div></section>
+{% endif %}
+{% endblock %}

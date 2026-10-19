@@ -1,0 +1,96 @@
+{% extends "panel/base.html" %}
+{% load static %}
+{% block content %}
+<a class="back-link" href="{% url 'panel:campaigns' %}"><svg class="i i-sm"><use href="#i-back"/></svg>Business campaigns</a>
+<div class="page-head">
+    <div><h1>{% if campaign %}{{ campaign.brand_name }}{% else %}New campaign{% endif %}</h1>
+        <p>{% if campaign %}Created {{ campaign.created|date:"d M Y" }}{% else %}Set up the brand, then download the QR code to send to the business.{% endif %}</p></div>
+    {% if campaign %}<div class="actions">
+        <form method="post" action="{% url 'panel:campaign_delete' campaign.pk %}" data-confirm="This permanently removes the campaign. Its link and QR code will stop working." data-confirm-title="Delete {{ campaign.brand_name }}?">{% csrf_token %}
+            <button class="btn danger" type="submit"><svg class="i i-sm"><use href="#i-trash"/></svg>Delete</button></form>
+    </div>{% endif %}
+</div>
+
+<div class="grid-form">
+    <form method="post" enctype="multipart/form-data" class="card" novalidate>
+        {% csrf_token %}
+        <div class="card-body">
+            {% if form.non_field_errors %}<div class="form-error">{{ form.non_field_errors|join:" " }}</div>{% endif %}
+            <div class="field{% if form.brand_name.errors %} has-error{% endif %}">
+                <label for="{{ form.brand_name.id_for_label }}">Brand name</label>
+                <input type="text" name="brand_name" id="{{ form.brand_name.id_for_label }}" maxlength="120" value="{{ form.brand_name.value|default:'' }}" placeholder="e.g. Zaravya Informatics" data-slug-source required>
+                {% if form.brand_name.errors %}<div class="errors">{{ form.brand_name.errors|join:" " }}</div>{% endif %}
+            </div>
+            <div class="field{% if form.slug.errors %} has-error{% endif %}">
+                <label for="{{ form.slug.id_for_label }}">Link name</label>
+                <div class="input-affix">
+                    <input type="text" name="slug" id="{{ form.slug.id_for_label }}" maxlength="63" value="{{ form.slug.value|default:'' }}" placeholder="zaravya" data-slug-target required autocapitalize="off" spellcheck="false">
+                    <span class="suffix">.{{ campaign_host }}</span>
+                </div>
+                <span class="help">Lowercase letters, numbers and hyphens. This becomes the campaign address.</span>
+                {% if form.slug.errors %}<div class="errors">{{ form.slug.errors|join:" " }}</div>{% endif %}
+            </div>
+            <div class="field{% if form.logo.errors %} has-error{% endif %}">
+                <label for="{{ form.logo.id_for_label }}">Brand logo</label>
+                <div class="file-pick">
+                    <span class="thumb checker" id="logoThumb"{% if campaign and campaign.logo %} style="background-image:url('{{ campaign.logo.url }}')"{% endif %}></span>
+                    <input type="file" name="logo" id="{{ form.logo.id_for_label }}" accept="image/*" data-preview="#logoThumb"{% if not campaign %} required{% endif %}>
+                </div>
+                <span class="help">Shown in the header of the guest page. A square or wide PNG with a transparent background works best.</span>
+                {% if form.logo.errors %}<div class="errors">{{ form.logo.errors|join:" " }}</div>{% endif %}
+            </div>
+            <div class="field{% if form.frame_template.errors %} has-error{% endif %}">
+                <label for="{{ form.frame_template.id_for_label }}">Branded frame</label>
+                {{ form.frame_template }}
+                <span class="help">Active frames with at least one photo window are listed, including campaign-only frames. <a class="link" href="{% url 'panel:frames_bulk' %}">Upload a frame</a> · <a class="link" href="{% url 'panel:frame_designer' %}{% if campaign %}?campaign_id={{ campaign.pk }}{% endif %}" target="_blank">Design with Studio</a>{% if not campaign %} · Your new design will be added here automatically.{% endif %}</span>
+                {% if form.frame_template.errors %}<div class="errors">{{ form.frame_template.errors|join:" " }}</div>{% endif %}
+            </div>
+            <label class="switch">
+                <input type="checkbox" name="is_active"{% if form.is_active.value %} checked{% endif %}><span class="track"></span>
+                <span class="text"><b>Campaign is live</b><span>Guests can open the link and take photos. Turn off to pause it.</span></span>
+            </label>
+        </div>
+        <div class="form-actions">
+            <button class="btn primary" type="submit">{% if campaign %}Save changes{% else %}Create campaign{% endif %}</button>
+            <a class="btn" href="{% url 'panel:campaigns' %}">Cancel</a>
+        </div>
+    </form>
+
+    <aside class="card qr-card">
+        <div class="card-head"><h2>QR code &amp; link</h2></div>
+        {% if campaign %}
+        <div class="card-body">
+            <div class="qr-frame"><img src="{% url 'panel:campaign_qr' campaign.pk %}" alt="QR code for {{ campaign.brand_name }}"></div>
+            <div class="qr-meta">
+                <a class="btn primary block" href="{% url 'panel:campaign_qr' campaign.pk %}?download=1"><svg class="i i-sm"><use href="#i-download"/></svg>Download QR code (PNG)</a>
+                <div class="url-box"><code title="{{ campaign.public_url }}">{{ campaign.public_url }}</code>
+                    <button type="button" class="btn sm" data-copy="{{ campaign.public_url }}"><svg class="i i-sm"><use href="#i-copy"/></svg><span class="copy-label">Copy</span></button></div>
+                <a class="btn block" href="{{ campaign.public_url }}" target="_blank" rel="noopener"><svg class="i i-sm"><use href="#i-ext"/></svg>Open campaign page</a>
+                {% if 'localhost' in campaign.public_url %}
+                <div class="notice"><svg class="i"><use href="#i-alert"/></svg><span>This is a local test link and only opens on this computer. Set <b>CAMPAIGN_BASE_DOMAIN</b> to your real domain before sending the QR code to a business.</span></div>
+                {% endif %}
+                {% if campaign.frame_template %}<div class="notice info"><svg class="i"><use href="#i-frame"/></svg><span>Frame in use: <b>{{ campaign.frame_template.name }}</b></span></div>{% endif %}
+            </div>
+        </div>
+        {% else %}
+        <div class="qr-empty"><div class="ph"><svg class="i"><use href="#i-qr"/></svg></div><b style="color:var(--ink)">QR code appears here</b><p>Save the campaign and the QR code is generated instantly, ready to download.</p></div>
+        {% endif %}
+    </aside>
+</div>
+{% endblock %}
+{% block page_scripts %}
+<script>
+window.addEventListener('message', event => {
+    if (event.origin !== window.location.origin || !event.data || event.data.type !== 'campaign-frame-created') return;
+    const select = document.getElementById('id_frame_template');
+    if (!select) return;
+    const id = String(event.data.id);
+    let option = [...select.options].find(item => item.value === id);
+    if (!option) {
+        option = new Option(`${event.data.name} (Campaign-only)`, id);
+        select.add(option);
+    }
+    select.value = id;
+});
+</script>
+{% endblock %}
