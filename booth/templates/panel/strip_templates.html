@@ -1,0 +1,24 @@
+{% extends "panel/base.html" %}
+{% block content %}
+<div class="page-head"><div><h1>Photo strips</h1><p>Uploaded strip artwork shown in the public “Select your strip” picker.</p></div>
+    <div class="actions"><a class="btn primary" href="{% url 'panel:strip_template_new' %}"><svg class="i i-sm"><use href="#i-plus"/></svg>Upload strip</a></div>
+</div>
+<section class="card">
+    {% if items %}
+    <div class="table-wrap"><table class="t">
+        <thead><tr><th>Preview</th><th>Name</th><th>Layouts</th><th>Order</th><th>Status</th><th></th></tr></thead>
+        <tbody>{% for item in items %}
+        <tr>
+            <td><div style="width:54px;height:82px;background:repeating-conic-gradient(#e4e1d8 0 25%,#fff 0 50%) 0 0/12px 12px"><img src="{{ item.image.url }}" alt="{{ item.name }}" style="width:100%;height:100%;object-fit:contain"></div></td>
+            <td><b>{{ item.name }}</b></td>
+            <td>{% for variant in item.layout_variants.all %}<a class="btn sm" href="{% url 'panel:strip_template_edit' item.pk %}?count={{ variant.photo_count }}">{{ variant.photo_count }} photos</a> {% endfor %}</td><td>{{ item.order }}</td>
+            <td>{% if item.is_active %}<span class="pill ok">Visible</span>{% else %}<span class="pill off">Hidden</span>{% endif %}</td>
+            <td><div class="cell-actions"><a class="btn sm" href="{% url 'panel:strip_template_edit' item.pk %}">Edit</a>
+                <form method="post" action="{% url 'panel:strip_template_delete' item.pk %}" data-confirm="This strip will be removed from the public picker." data-confirm-title="Delete {{ item.name }}?">{% csrf_token %}<button class="btn sm danger" type="submit">Delete</button></form></div></td>
+        </tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}
+    <div class="empty"><svg class="i"><use href="#i-frame"/></svg><h3>No strip artwork uploaded</h3><p>Upload a transparent PNG design and it will appear in the strip picker.</p><a class="btn primary" href="{% url 'panel:strip_template_new' %}">Upload strip</a></div>
+    {% endif %}
+</section>
+{% endblock %}

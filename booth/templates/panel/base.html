@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% if notify.unread %}({{ notify.unread }}) {% endif %}{{ page_title }} &middot; Photobooth Admin</title>
     <link rel="icon" href="{% static 'booth/favicon.svg' %}">
-    <link rel="stylesheet" href="{% static 'panel/panel.css' %}?v=campaign-studio-1">
+    <link rel="stylesheet" href="{% static 'panel/panel.css' %}?v=campaign-studio-2">
 </head>
 <body>
 {% include "panel/_icons.html" %}
@@ -21,8 +21,8 @@
         <a class="nav-link{% if section == 'campaigns' %} is-active{% endif %}" href="{% url 'panel:campaigns' %}"><svg class="i"><use href="#i-qr"/></svg>Business campaigns</a>
         <div class="side-label">Content</div>
         <a class="nav-link{% if section == 'frames' %} is-active{% endif %}" href="{% url 'panel:frames' %}"><svg class="i"><use href="#i-frame"/></svg>Frames</a>
+        <a class="nav-link{% if section == 'strips' %} is-active{% endif %}" href="{% url 'panel:strip_templates' %}"><svg class="i"><use href="#i-frame"/></svg>Photo strips</a>
         <a class="nav-link{% if section == 'categories' %} is-active{% endif %}" href="{% url 'panel:categories' %}"><svg class="i"><use href="#i-tag"/></svg>Categories</a>
-        <a class="nav-link{% if section == 'creations' %} is-active{% endif %}" href="{% url 'panel:creations' %}"><svg class="i"><use href="#i-image"/></svg>Gallery</a>
         <div class="side-label">Site</div>
         <a class="nav-link" href="/" target="_blank" rel="noopener"><svg class="i"><use href="#i-site"/></svg>View website</a>
     </nav>

@@ -8,7 +8,7 @@
     <meta name="csrf" content="{{ csrf_token }}">
     <title>Photobooth - Instant frames and photo strips</title>
     <link rel="icon" href="{% static 'booth/favicon.svg' %}" type="image/svg+xml">
-    <link rel="stylesheet" href="{% static 'booth/style.css' %}?v=printer-selected-design-2">
+    <link rel="stylesheet" href="{% static 'booth/style.css' %}?v=account-popup-rollback-1">
 </head>
 <body{% if campaign %} class="campaign-mode"{% elif admin_studio %} class="admin-frame-designer"{% endif %}>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -45,25 +45,25 @@
         <span class="mark"></span><span id="brandName">Photobooth</span>
         {% endif %}
     </a>
-    <a class="try-free-btn" id="tryFreeBtn" href="#try-free"{% if campaign %} hidden{% endif %}>Try for free</a>
+    <a class="try-free-btn" id="savedTemplatesBtn" href="#savedSection"{% if campaign %} hidden{% endif %}>Saved templates</a>
     <nav class="site-nav" id="siteNav" aria-label="Main navigation"{% if campaign %} hidden{% endif %}>
-        <a href="#v-home">Home</a>
+        <a href="#v-home" class="is-active" aria-current="location">Home</a>
         <a href="#how-it-works">How it works</a>
-            <a href="#faq">FAQ</a>
-            <a href="#contact">Contact</a>
-            <a href="#studio" id="studioNavLink">Studio</a>
-        </nav>
-        <button class="nav-toggle" id="navToggle" type="button" aria-label="Open navigation menu" aria-controls="siteNav" aria-expanded="false"{% if campaign %} hidden{% endif %}>
-            <span></span><span></span><span></span>
-        </button>
-        <ol class="steps" id="steps" hidden>
+        <a href="#faq">FAQ</a>
+        <a href="#contact">Contact</a>
+        <a href="#studio" id="studioNavLink">Studio</a>
+    </nav>
+    <button class="nav-toggle" id="navToggle" type="button" aria-label="Open navigation menu" aria-controls="siteNav" aria-expanded="false"{% if campaign %} hidden{% endif %}>
+        <span></span><span></span><span></span>
+    </button>
+    <ol class="steps" id="steps" hidden>
         <li data-s="1"><b>1</b>Choose</li>
         <li data-s="2"><b>2</b>Capture</li>
         <li data-s="3"><b>3</b>Customize</li>
     </ol>
 </header>
 
-<main>
+<main class="landing-main">
     <section class="campaign-error" id="campaignError" role="alert" hidden>
         <h1>This photo booth is temporarily unavailable.</h1>
         <p>Please try again in a moment or contact the event organizer.</p>
@@ -71,10 +71,44 @@
     <!-- 1. HOME -->
     <section class="view on" id="v-home">
         <div class="hero">
-            <p class="eyebrow">Online photo booth</p>
-            <h1>Photo strips and instant frames, <em>finished in minutes.</em></h1>
-            <p class="lead">Choose a layout, take your photos with a countdown, then style the result with colors, patterns, stickers, captions and filters. Photos stay on your device unless you choose to save one to the booth gallery.</p>
+            <div class="hero-copy">
+                <p class="eyebrow">Online photo booth</p>
+                <h1>Photo strips and instant frames, <em>finished in minutes.</em></h1>
+                <p class="lead">Choose a layout, take your photos with a countdown, then style the result with colors, patterns, stickers, captions and filters. Photos stay on your device.</p>
+                <div class="hero-actions">
+                    <button class="btn primary big" id="heroStartBtn" type="button">Start creating</button>
+                    <a class="btn big hero-secondary" id="heroBrowseFrames" href="#try-free">Browse frames</a>
+                </div>
+                <ul class="hero-benefits" aria-label="Photo booth features">
+                    <li>No app needed</li>
+                    <li>Layouts for 1–4 photos</li>
+                    <li>Photos stay on your device</li>
+                </ul>
+                <ul class="hero-stats" aria-label="Photobooth activity">
+                    <li><strong data-site-stat="photos_captured">0</strong><span>Photos Captured</span></li>
+                    <li><strong data-site-stat="users">0</strong><span>Users</span></li>
+                    <li><strong data-site-stat="downloads">0</strong><span>Downloads</span></li>
+                    <li><strong data-site-stat="active_now">0</strong><span>Active Now</span></li>
+                </ul>
+            </div>
+            <div class="hero-visual" id="heroPrinter" role="button" tabindex="0"
+                 aria-label="Photo printer. Click to skip to the next frame.">
+                <div class="printer-case">
+                    <div class="printer-paper-window" id="printerPaperWindow" aria-hidden="true"></div>
+                    <img class="printer-device" src="{% get_media_prefix %}printer.png" alt="">
+                </div>
+            </div>
         </div>
+
+        <section class="server-frames" id="serverFrameSection" hidden>
+            <h2>Pick a frame, make it yours</h2>
+            <p class="saved-intro">Browse the collection and start creating.</p>
+            <div class="server-frame-browser" id="serverFrameBrowser">
+                <button class="server-frame-arrow" id="serverFramePrev" type="button" aria-label="Show previous frames">&lsaquo;</button>
+                <div class="choices" id="serverChoices"></div>
+                <button class="server-frame-arrow" id="serverFrameNext" type="button" aria-label="Show more frames">&rsaquo;</button>
+            </div>
+        </section>
 
         <div class="options" id="try-free">
             <button class="opt" id="optInstant">
@@ -89,7 +123,7 @@
                 <div class="opt-art tint-b" id="artStrip"></div>
                 <div class="opt-body">
                     <h2>Select your strip</h2>
-                    <p>Polished strip designs for 2, 3, or 4 photos. Choose a style and make it yours.</p>
+                    <p>Polished strip designs for 2, 3, or 4 photos. Choose a style.</p>
                     <span class="go">Browse strips <svg class="i"><use href="#i-back"/></svg></span>
                 </div>
             </button>
@@ -118,22 +152,6 @@
                     </div>
                 </div>
             </div>
-        </section>
-
-        <section class="server-frames" id="serverFrameSection" hidden>
-            <h2>Pick a frame, make it yours</h2>
-            <p class="saved-intro">Browse the collection and start creating.</p>
-            <div class="server-frame-browser" id="serverFrameBrowser">
-                <button class="server-frame-arrow" id="serverFramePrev" type="button" aria-label="Show previous frames">&lsaquo;</button>
-                <div class="choices" id="serverChoices"></div>
-                <button class="server-frame-arrow" id="serverFrameNext" type="button" aria-label="Show more frames">&rsaquo;</button>
-            </div>
-        </section>
-
-        <section class="saved-section" id="savedSection" hidden>
-            <h2>Saved templates</h2>
-            <p class="saved-intro">Start a new photo session from a saved layout, or edit the layout in Studio.</p>
-            <div class="saved-list" id="savedTemplates"></div>
         </section>
 
         <section class="how-section" id="how-it-works" aria-labelledby="howTitle">
@@ -174,13 +192,13 @@
                 <p class="contact-intro">Have a question about our virtual photo booths, or want a booth designed for your event? Tell us about it and we will get back to you.</p>
                 <p class="contact-label">Custom campaigns for</p>
                 <ul class="contact-tags" aria-label="Campaign types">
-                    <li>Brand Promotion</li>
-                    <li>Wedding or Birthday</li>
-                    <li>Corporate Events</li>
-                    <li>Festivals &amp; Holidays</li>
-                    <li>Schools &amp; Colleges</li>
-                    <li>Sports &amp; Entertainment</li>
-                    <li>Travel &amp; Tourism</li>
+                    <li><button type="button" data-interest="Brand promotion">Brand Promotion</button></li>
+                    <li><button type="button" data-interest="Wedding or birthday">Wedding or Birthday</button></li>
+                    <li><button type="button" data-interest="Corporate event">Corporate Events</button></li>
+                    <li><button type="button" data-interest="Festival or holiday">Festivals &amp; Holidays</button></li>
+                    <li><button type="button" data-interest="School or college">Schools &amp; Colleges</button></li>
+                    <li><button type="button" data-interest="Sports or entertainment">Sports &amp; Entertainment</button></li>
+                    <li><button type="button" data-interest="Travel or tourism">Travel &amp; Tourism</button></li>
                 </ul>
                 <ol class="contact-steps">
                     <li><b>1</b><span><strong>Tell us</strong>Share your event, audience and goals.</span></li>
@@ -211,6 +229,8 @@
                         <option>Corporate event</option>
                         <option>Festival or holiday</option>
                         <option>School or college</option>
+                        <option>Sports or entertainment</option>
+                        <option>Travel or tourism</option>
                         <option>Other event</option>
                     </select>
                 </label>
@@ -225,6 +245,26 @@
                 <button class="btn primary contact-submit" type="submit">Send message</button>
                 <p class="contact-status" id="contactStatus" role="status" aria-live="polite">We usually reply within one working day.</p>
             </form>
+        </section>
+    </section>
+
+    <section class="view saved-templates-view" id="v-saved-templates" aria-labelledby="savedTemplatesTitle">
+        <button class="link" id="backFromSavedTemplates" type="button"><svg class="i"><use href="#i-back"/></svg>Back to booth</button>
+        <section class="saved-section" id="savedSection">
+            <div class="saved-heading">
+                <div>
+                    <p class="eyebrow">Your designs</p>
+                    <h1 class="title" id="savedTemplatesTitle">Saved templates</h1>
+                    <p class="saved-intro">Return to a saved design and start another photo session whenever you like.</p>
+                </div>
+                <div class="saved-controls">
+                    <span class="saved-count" id="savedTemplateCount" aria-live="polite"></span>
+                    <button class="saved-scroll-arrow" id="savedPrev" type="button" aria-label="Show previous saved templates" disabled>&lsaquo;</button>
+                    <button class="saved-scroll-arrow" id="savedNext" type="button" aria-label="Show next saved templates" disabled>&rsaquo;</button>
+                </div>
+            </div>
+            <p class="saved-empty" id="savedTemplatesEmpty" hidden>No saved templates yet. Save a design while personalizing a frame, and it will appear here.</p>
+            <div class="saved-list" id="savedTemplates" role="region" aria-label="Saved templates" tabindex="0"></div>
         </section>
     </section>
 
@@ -244,7 +284,7 @@
                 </details>
                 <details>
                     <summary><span class="faq-number" aria-hidden="true">02</span><span>Do users need to download an app?</span></summary>
-                    <p>No. There is no app to download and no login needed. It opens instantly in regular web browsers like Chrome or Safari.</p>
+                    <p>No app or account is needed to capture photos. Sign in with an account or Google only when saving and sharing a personalized frame with Studio fields.</p>
                 </details>
                 <details>
                     <summary><span class="faq-number" aria-hidden="true">03</span><span>How do customers open the booth?</span></summary>
@@ -297,6 +337,71 @@
             </div>
         </div>
         <div class="all-frames-grid choices" id="allFramesGrid"></div>
+    </section>
+
+    <section class="view frame-personalize-view" id="v-frame-personalize" aria-labelledby="framePersonalizeTitle">
+        <header class="personalize-studio-topbar">
+            <button class="link" id="framePersonalizeBack" type="button"><svg class="i"><use href="#i-back"/></svg>Back</button>
+            <h1 id="framePersonalizeTitle">Personalize</h1>
+            <div class="personalize-studio-top-actions">
+                <button class="btn" id="framePersonalizeSaveTop" type="button" data-personalize-section="share"><svg class="i i-sm"><use href="#i-bookmark"/></svg>Save template</button>
+            </div>
+        </header>
+        <div class="personalize-studio-workspace">
+            <nav class="personalize-studio-rail" id="framePersonalizeSectionNav" aria-label="Personalization tools">
+                <button type="button" class="is-active" data-personalize-section="logo"><svg class="i"><use href="#i-upload"/></svg><span>Logo</span></button>
+                <button type="button" data-personalize-section="text"><svg class="i"><use href="#i-text"/></svg><span>Text</span></button>
+                <button type="button" data-personalize-section="share"><svg class="i"><use href="#i-share"/></svg><span>Save</span></button>
+            </nav>
+            <aside class="personalize-studio-panel">
+                <div class="personalize-panel-heading"><span class="eyebrow">PERSONALIZE</span><h2 id="framePersonalizeSectionTitle">Brand logo</h2><p id="framePersonalizeName"></p></div>
+                <label class="personalize-save-name personalize-url-name"><span>Brand name for URL <small>(optional)</small></span><input id="frameCampaignBrandName" type="text" maxlength="120" placeholder="Defaults to your brand name" autocomplete="organization"><small>Optional. Used to customize your campaign link.</small></label>
+                <p class="personalize-required-note" id="framePersonalizeRequiredNote" role="status">Complete every required Studio field to unlock campaign creation and template saving.</p>
+                <div class="personalize-section-content">
+                        <section class="personalize-section is-active" data-personalize-panel="logo">
+                            <div class="personalize-fields" id="framePersonalizeLogoFields"></div>
+                        </section>
+                        <section class="personalize-section" data-personalize-panel="text" hidden>
+                            <div class="personalize-fields" id="framePersonalizeTextFields"></div>
+                        </section>
+                        <section class="personalize-section personalize-actions" data-personalize-panel="share" hidden>
+                            <p>Create a campaign link and QR code for this personalized frame. You can share the link or download the QR code.</p>
+                            <label class="personalize-save-name"><span>Template name <small>(optional)</small></span><input id="framePersonalizeSaveName" type="text" maxlength="60" placeholder="Defaults to the frame name"></label>
+                            <button class="btn primary" id="framePersonalizeSave" type="button"><svg class="i i-sm"><use href="#i-share"/></svg>Create campaign link &amp; QR</button>
+                            <section class="personalize-share" id="framePersonalizeShare" hidden aria-live="polite">
+                                <div class="personalize-share-head"><b>QR code &amp; link</b><span id="framePersonalizeShareTitle">Your frame is ready to share</span></div>
+                                <div class="personalize-share-body">
+                                    <div class="personalize-share-qr-frame">
+                                        <img class="personalize-share-brand" id="framePersonalizeBrandLogo" alt="Brand logo" hidden>
+                                        <b class="personalize-share-brand-name" id="framePersonalizeBrandName"></b>
+                                        <img class="personalize-share-qr" id="framePersonalizeShareQr" alt="QR code linking to this campaign page">
+                                    </div>
+                                    <div class="personalize-share-meta">
+                                        <p class="personalize-share-notice">Scan the clear QR code to open this campaign page. The brand logo appears above it on the downloaded image.</p>
+                                        <a class="btn primary personalize-share-download" id="framePersonalizeQrDownloadText" href="#" download><svg class="i i-sm"><use href="#i-download"/></svg>Download QR code (PNG)</a>
+                                        <div class="personalize-share-url"><code id="framePersonalizeShareUrlText"></code><button class="btn sm" id="framePersonalizeCopyLink" type="button"><svg class="i i-sm"><use href="#i-copy"/></svg>Copy</button></div>
+                                        <a class="btn personalize-share-open" id="framePersonalizeOpenLink" href="#" target="_blank" rel="noopener"><svg class="i i-sm"><use href="#i-ext"/></svg>Open campaign page</a>
+                                    </div>
+                                </div>
+                            </section>
+                            <button class="btn primary big" id="framePersonalizeCapture" type="button"><svg class="i"><use href="#i-camera"/></svg><span>Continue to camera</span></button>
+                        </section>
+                </div>
+            </aside>
+            <div class="personalize-studio-stage">
+                <div class="personalize-stage-caption"><div><b>Live preview</b><span>Your changes appear here as you edit.</span></div></div>
+                <div class="personalize-art-wrap"><canvas id="framePersonalizeCanvas" aria-label="Live preview of your personalized frame"></canvas></div>
+                <div class="personalize-stage-footer">
+                    <p class="personalize-lock"><svg class="i"><use href="#i-lock"/></svg>Photo window stays fixed for this frame.</p>
+                    <div class="preview-zoom-controls" role="group" aria-label="Preview zoom controls">
+                        <button type="button" id="framePreviewZoomOut" aria-label="Zoom out">−</button>
+                        <output id="framePreviewZoomValue" aria-live="polite">100%</output>
+                        <button type="button" id="framePreviewZoomIn" aria-label="Zoom in">+</button>
+                        <button type="button" id="framePreviewZoomFit">Fit</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </section>
 
     <!-- 2. CHOOSE -->
@@ -546,7 +651,8 @@
                 </section>
                 <section class="upload-section">
                     <h3>Background image</h3>
-                    <p class="hint">Choose an image to fill the frame behind your photos.</p>
+                    <p class="hint">Upload frame artwork. Enclosed transparent openings are detected and used as camera photo windows.</p>
+                    <label class="check"><input type="checkbox" id="bgRemovePlain"> Make a plain edge background transparent</label>
                     <button class="btn" id="bgUpload" type="button"><svg class="i"><use href="#i-upload"/></svg>Upload background</button>
                     <input type="file" id="bgFile" accept="image/*" hidden>
                 </section>
@@ -595,9 +701,11 @@
     </div>
 </dialog>
 {{ campaign|json_script:"campaignConfig" }}
+{{ strip_templates|json_script:"stripTemplateConfig" }}
+{{ google_auth_config|json_script:"googleAuthConfig" }}
 {{ studio_backgrounds|json_script:"studioBackgrounds" }}
 {{ admin_studio_config|json_script:"adminStudioConfig" }}
-<script src="{% static 'booth/app.js' %}?v=printer-selected-design-2"></script>
-<script src="{% static 'booth/live.js' %}"></script>
+    <script src="{% static 'booth/app.js' %}?v=strip-admin-1"></script>
+<script src="{% static 'booth/live.js' %}?v=live-host-result-fix-1"></script>
 </body>
 </html>

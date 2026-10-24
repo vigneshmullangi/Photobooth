@@ -125,7 +125,7 @@
             <div class="preview-box"><div class="frame-preview checker">
                 <img src="{{ frame.image.url }}" alt="{{ frame.name }}">
                 {% for t in texts %}<div class="win txt{% if t.data_type == 'upload' %} image-field{% endif %}" data-text-index="{{ forloop.counter0 }}" data-image-url="{% if t.default_image %}{{ t.default_image.url }}{% endif %}" style="left:{{ t.x }}%;top:{{ t.y }}%;width:{{ t.w }}%;height:{{ t.h }}%;color:{{ t.color }}">{% if t.data_type == 'upload' and t.default_image %}<img class="field-image-preview" src="{{ t.default_image.url }}" alt="Default image for {{ t.label }}">{% endif %}<span>{{ t.default_text|default:t.label }}</span><i class="txt-resize" aria-hidden="true"></i></div>{% endfor %}
-                {% for s in slots %}<div class="win win-{{ s.shape }}" style="left:{{ s.x }}%;top:{{ s.y }}%;width:{{ s.w }}%;height:{{ s.h }}%">{{ forloop.counter }}</div>{% endfor %}
+                {% for s in slots %}<div class="win win-{{ s.shape }} camera-window" data-slot-index="{{ forloop.counter0 }}" style="left:{{ s.x }}%;top:{{ s.y }}%;width:{{ s.w }}%;height:{{ s.h }}%">{{ forloop.counter }}</div>{% endfor %}
             </div></div>
             <div class="card-body" style="padding-top:0"><span class="help muted">{{ slots|length }} photo window{{ slots|length|pluralize }} detected.</span></div>
             {% else %}

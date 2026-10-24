@@ -21,7 +21,7 @@
     const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I
 
     /* ---------- state ---------- */
-    const blank = () => ({role: null, code: '', peer: null, conns: [], conn: null, me: {slot: -1, name: ''}, members: [], done: false, joined: false, settle: null, tmo: 0});
+    const blank = () => ({role: null, code: '', peer: null, conns: [], conn: null, calls: new Map(), calledPeers: new Set(), remoteVideos: new Map(), pendingCalls: [], pendingPhotoLoads: new Set(), restarting: false, me: {slot: -1, name: ''}, members: [], pending: [], done: false, joined: false, settle: null, tmo: 0});
     let room = blank();
 
     /* ---------- small helpers ---------- */
@@ -82,6 +82,18 @@
 .live-chip.on{border-style:solid;border-color:var(--line);background:var(--paper);color:var(--ink)}
 .live-chip.me{border-color:var(--ac)}
 .live-chip.shot b{background:var(--ac);color:#fff}
+.live-feed-grid{position:absolute;z-index:1;inset:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:3px;padding:3px;background:#171613}
+.live-feed-tile{position:relative;min-width:0;min-height:0;overflow:hidden;border-radius:10px;background:linear-gradient(145deg,#36342f,#171613);display:grid;place-items:center}
+.live-feed-tile video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+.live-feed-tile.remote video{transform:none}
+.live-feed-tile .live-feed-placeholder{color:#e8e2d7;font-size:clamp(14px,2vw,25px);font-weight:650}
+.live-feed-tile .live-feed-name{position:absolute;left:8px;bottom:8px;padding:4px 8px;border-radius:999px;background:rgba(0,0,0,.58);color:#fff;font-size:12px;line-height:1.2}
+.room-view .cam>video{visibility:hidden}
+.room-view .slots{display:none}
+.room-view #upBtn{display:none}
+.room-view.room-guest .shoot{display:none}
+.live-room-hint{color:var(--mu);font-size:12px}
+.room-view .cam-msg{z-index:4}
 @media(max-width:520px){.live-frame-grid{grid-template-columns:repeat(2,minmax(0,1fr));max-height:38vh}.live-frame-thumb{height:100px}.live-frame-thumb canvas{max-height:94px}.live-dialog{padding:18px}}
 @media (min-width:861px){
     body.capture-view #v-capture,body.capture-view #v-capture.on{
@@ -104,7 +116,9 @@
     <div class="live-code"><span>Room</span><b id="liveCode"></b></div>
     <button class="tog" id="liveCopy" type="button" title="Invite friends"><svg class="i"><use href="#i-share"/></svg><span>Invite</span></button>
     <div class="live-roster" id="liveRoster"></div>
+    <span class="live-room-hint" id="liveRoomHint"></span>
 </div>`);
+    $('cam').insertAdjacentHTML('afterbegin', '<div class="live-feed-grid" id="liveFeedGrid" aria-label="Live group camera" hidden></div>');
 
     document.body.insertAdjacentHTML('beforeend', `
 <dialog class="template-dialog live-dialog" id="liveDialog" aria-labelledby="liveTitle">
@@ -118,9 +132,10 @@
     </div>
     <label class="live-field">Your name<input type="text" id="liveName" maxlength="16" placeholder="Priya" autocomplete="given-name"></label>
     <div class="live-pane on" id="lp-create">
+        <label class="live-field">People in this room<select id="livePeopleCount" aria-label="Number of people in the room"><option value="2">2 people</option><option value="3" selected>3 people</option><option value="4">4 people</option></select></label>
         <div class="live-frame-label"><span>Choose a frame</span><small id="liveFrameHint">Select a layout for your group</small></div>
         <div class="live-frame-grid" id="liveFrameGrid" role="group" aria-label="Choose a frame"></div>
-        <p class="live-note">Each friend takes one slot from their own phone or laptop. Photos go straight between your devices.</p>
+        <p class="live-note">Choose 2, 3, or 4 people. Everyone sees the live group preview, then one shared countdown captures the group into your selected frame.</p>
     </div>
     <div class="live-pane" id="lp-join">
         <label class="live-field">Room code<input type="text" id="liveCodeIn" maxlength="7" placeholder="KQ4-7M2" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
@@ -149,35 +164,90 @@
         ...STRIPS.map(p => ({mode: 'strip', n: p.n, preset: p, name: p.name + ' strip'}))
     ];
     let selectedFrameIndex = 0;
+    let liveFrames = [];
     const liveFrameGrid = $('liveFrameGrid');
-    FRAMES.forEach((frame, index) => {
+    function liveFrameTemplate(template, count) {
+        if (!Array.isArray(template.slots) || template.slots.length !== 1) return template;
+        const opening = template.slots[0], sideBySide = opening.w / opening.h > 1;
+        const slots = Array.from({length: count}, (_, index) => ({
+            x: opening.x + (sideBySide ? opening.w * index / count : 0),
+            y: opening.y + (sideBySide ? 0 : opening.h * index / count),
+            w: sideBySide ? opening.w / count : opening.w,
+            h: sideBySide ? opening.h : opening.h / count,
+            shape: 'square',
+        }));
+        return {...template, slots, liveSharedOpening: true};
+    }
+    function renderLiveFrames() {
+        const previous = liveFrames[selectedFrameIndex];
+        const count = Number($('livePeopleCount').value) || 3;
+        const uploadedFrames = (Array.isArray(serverFrameTemplates) ? serverFrameTemplates : [])
+            .filter(template => Array.isArray(template.slots) && template.slots.length >= 1 && template.slots.length <= 4)
+            .map(source => {
+                const sharedOpening = source.slots.length === 1;
+                const people = sharedOpening ? count : source.slots.length;
+                const template = liveFrameTemplate(source, people);
+                return {mode: 'server', n: people, template, name: template.name, sharedOpening};
+            });
+        liveFrames = [...uploadedFrames, ...FRAMES.filter(frame => frame.n === count)];
+        selectedFrameIndex = previous ? liveFrames.findIndex(frame => frame.mode === previous.mode &&
+            (frame.template?.id || frame.preset?.id || frame.name) === (previous.template?.id || previous.preset?.id || previous.name)) : uploadedFrames.length ? 0 : 1;
+        if (selectedFrameIndex < 0 || selectedFrameIndex >= liveFrames.length) selectedFrameIndex = uploadedFrames.length ? 0 : 1;
+        liveFrameGrid.replaceChildren();
+        liveFrames.forEach((frame, index) => {
         const card = document.createElement('button');
         card.type = 'button';
         card.className = 'live-frame-card';
         card.setAttribute('aria-pressed', String(index === selectedFrameIndex));
         const thumb = document.createElement('span');
         thumb.className = 'live-frame-thumb';
-        const stripStyle = frame.mode === 'strip' ? frame.preset : {};
-        thumb.appendChild(previewCanvas(layoutFor(frame.mode, frame.n), stripStyle, 110, index));
+        if (frame.mode === 'server') {
+            const canvas = mk(90, 110), image = new Image();
+            image.onload = () => {
+                const scale = Math.min(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight);
+                const width = image.naturalWidth * scale, height = image.naturalHeight * scale;
+                canvas.getContext('2d').drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
+            };
+            image.src = frame.template.image;
+            thumb.appendChild(canvas);
+        } else {
+            const stripStyle = frame.mode === 'strip' ? frame.preset : {};
+            thumb.appendChild(previewCanvas(layoutFor(frame.mode, frame.n), stripStyle, 110, index));
+        }
         const title = document.createElement('strong');
         title.textContent = frame.name;
         const details = document.createElement('small');
-        details.textContent = `${frame.n} photos · ${frame.mode === 'strip' ? 'Photo strip' : 'Instant frame'}`;
+        details.textContent = frame.mode === 'server' && frame.sharedOpening
+            ? `${frame.n} photos · Shared opening`
+            : `${frame.n} photos · ${frame.mode === 'server' ? 'Uploaded frame' : frame.mode === 'strip' ? 'Photo strip' : 'Instant frame'}`;
         const check = document.createElement('span');
         check.className = 'live-frame-check';
         check.setAttribute('aria-hidden', 'true');
         check.textContent = '✓';
         card.append(thumb, title, details, check);
         card.addEventListener('click', () => {
+            if (frame.mode === 'server' && !frame.sharedOpening && Number($('livePeopleCount').value) !== frame.n) {
+                $('livePeopleCount').value = String(frame.n);
+                renderLiveFrames();
+                return;
+            }
             selectedFrameIndex = index;
             liveFrameGrid.querySelectorAll('.live-frame-card').forEach((item, itemIndex) => {
                 item.setAttribute('aria-pressed', String(itemIndex === selectedFrameIndex));
             });
-            $('liveFrameHint').textContent = `${frame.n} photos · ${frame.mode === 'strip' ? 'Photo strip' : 'Instant frame'}`;
+            $('liveFrameHint').textContent = frame.mode === 'server' && frame.sharedOpening
+                ? `${frame.n} photos · Shared opening`
+                : `${frame.n} photos · ${frame.mode === 'server' ? 'Uploaded frame' : frame.mode === 'strip' ? 'Photo strip' : 'Instant frame'}`;
         });
         liveFrameGrid.appendChild(card);
-    });
-    $('liveFrameHint').textContent = `${FRAMES[selectedFrameIndex].n} photos · Instant frame`;
+        });
+        const selected = liveFrames[selectedFrameIndex];
+        $('liveFrameHint').textContent = selected.mode === 'server' && selected.sharedOpening
+            ? `${selected.n} photos · Shared opening`
+            : `${selected.n} photos · ${selected.mode === 'server' ? 'Uploaded frame' : selected.mode === 'strip' ? 'Photo strip' : 'Instant frame'}`;
+    }
+    window.refreshLiveBoothFrames = renderLiveFrames;
+    $('livePeopleCount').addEventListener('change', renderLiveFrames);
 
     /* ---------- UI: dialog ---------- */
     let dlgMode = 'create';
@@ -192,6 +262,7 @@
         setStatus('');
     }
     function openDlg(m) {
+        if (m === 'create') renderLiveFrames();
         setMode(m);
         $('liveGo').disabled = false;
         const d = $('liveDialog');
@@ -215,9 +286,18 @@
         try {
             if (dlgMode === 'create') {
                 setStatus('Creating your room\u2026');
-                const cfg = FRAMES[selectedFrameIndex];
-                await createRoom(cfg, cleanName($('liveName').value) || 'Host');
-                startCapture(cfg.mode, cfg.n, cfg.preset, cfg.name);
+                const cfg = liveFrames[selectedFrameIndex] || FRAMES[1];
+                if (cfg.mode === 'server') {
+                    const loaded = await startServerFrame(cfg.template, {live: true});
+                    if (!loaded) throw {why: 'Could not load the selected frame.'};
+                    await createRoom(cfg, cleanName($('liveName').value) || 'Host');
+                    document.body.classList.add('room-view');
+                    buildSlots();
+                    liveCameraReady();
+                } else {
+                    await createRoom(cfg, cleanName($('liveName').value) || 'Host');
+                    startCapture(cfg.mode, cfg.n, cfg.preset, cfg.name, null, true);
+                }
                 closeDlg();
                 toast('Room ready. Invite your friends.');
             } else {
@@ -249,6 +329,9 @@
         if (!room.role) { bar.hidden = true; return; }
         bar.hidden = false;
         $('liveCode').textContent = fmtCode(room.code);
+        $('liveRoomHint').textContent = busy ? 'Shared countdown in progress' : room.done
+            ? 'Group photo captured' : room.role === 'host'
+                ? 'You control the shared capture' : 'Waiting for the host to start the group photo';
         const host = $('liveRoster');
         host.innerHTML = '';
         for (let i = 0; i < flow.layout.n; i++) {
@@ -257,15 +340,122 @@
             chip.className = 'live-chip' + (m ? ' on' : '') + (mine ? ' me' : '') + (photos[i] ? ' shot' : '');
             const num = document.createElement('b');
             num.textContent = i + 1;
-            chip.append(num, document.createTextNode(m ? (mine ? m.name + ' (you)' : m.name) : 'Waiting\u2026'));
+            chip.append(num, document.createTextNode(m ? (mine ? m.name + ' (you)' : m.name) + (m.ready === false ? ' · loading' : '') : 'Waiting\u2026'));
             host.appendChild(chip);
         }
+        renderLiveFeeds();
+    }
+
+    function renderLiveFeeds() {
+        const grid = $('liveFeedGrid');
+        if (!grid) return;
+        grid.hidden = !room.role;
+        if (!room.role) { grid.replaceChildren(); return; }
+        const members = Array.from({length: flow.layout.n}, (_, slot) => room.members.find(item => item.slot === slot) || {slot, name: `Waiting ${slot + 1}`});
+        grid.style.gridTemplateColumns = `repeat(${members.length === 2 ? 2 : 2},minmax(0,1fr))`;
+        grid.style.gridTemplateRows = `repeat(${Math.ceil(members.length / 2)},minmax(0,1fr))`;
+        grid.replaceChildren(...members.map(member => {
+            const tile = document.createElement('div');
+            tile.className = 'live-feed-tile' + (member.slot === room.me.slot ? ' local' : ' remote');
+            tile.dataset.slot = String(member.slot);
+            if (members.length === 3 && member.slot === 2) {
+                tile.style.gridColumn = '1 / -1';
+                tile.style.width = '50%';
+                tile.style.justifySelf = 'center';
+            }
+            const video = document.createElement('video');
+            video.autoplay = true; video.playsInline = true; video.muted = true;
+            video.style.transform = member.slot === room.me.slot && mirror && facing === 'user' ? 'scaleX(-1)' : 'none';
+            const media = member.slot === room.me.slot ? stream : room.remoteVideos.get(member.slot);
+            if (media) { video.srcObject = media; video.play().catch(() => {}); }
+            else {
+                const placeholder = document.createElement('span');
+                placeholder.className = 'live-feed-placeholder';
+                placeholder.textContent = member.name.startsWith('Waiting') ? '…' : member.name.slice(0, 1).toUpperCase();
+                tile.appendChild(placeholder);
+            }
+            const name = document.createElement('span');
+            name.className = 'live-feed-name';
+            name.textContent = member.slot === room.me.slot ? `${member.name} (you)` : member.name;
+            tile.append(video, name);
+            return tile;
+        }));
+    }
+
+    function liveVideoForSlot(slot) {
+        if (slot === room.me.slot) return vid;
+        return $('liveFeedGrid').querySelector(`.live-feed-tile[data-slot="${slot}"] video`);
+    }
+
+    function answerLiveCall(call) {
+        if (!room.role || !stream || !call || call._boothAnswered) return;
+        call._boothAnswered = true;
+        room.calls.set(call.peer, call);
+        room.calledPeers.add(call.peer);
+        try { call.answer(stream); } catch { return; }
+        call.on('stream', media => receiveLiveStream(call.peer, media));
+        call.on('close', () => {
+            if (room.calls.get(call.peer) !== call) return;
+            removeLiveStream(call.peer);
+            if (!room.restarting) connectLivePeers();
+        });
+        call.on('error', () => removeLiveStream(call.peer));
+    }
+
+    function receiveLiveStream(peerId, media) {
+        const member = room.members.find(item => item.peerId === peerId);
+        if (!member) return;
+        room.remoteVideos.set(member.slot, media);
+        renderLiveFeeds();
+    }
+
+    function removeLiveStream(peerId) {
+        const member = room.members.find(item => item.peerId === peerId);
+        if (!member) return;
+        room.remoteVideos.delete(member.slot);
+        room.calls.delete(peerId);
+        room.calledPeers.delete(peerId);
+        renderLiveFeeds();
+    }
+
+    function connectLivePeers() {
+        if (!room.role || !stream || !room.peer) return;
+        const activePeerIds = new Set(room.members.map(member => member.peerId).filter(Boolean));
+        room.calls.forEach((call, peerId) => {
+            if (!activePeerIds.has(peerId)) {
+                try { call.close(); } catch {}
+                room.calls.delete(peerId); room.calledPeers.delete(peerId);
+            }
+        });
+        room.pendingCalls.splice(0).forEach(answerLiveCall);
+        room.members.forEach(member => {
+            if (!member.peerId || member.slot === room.me.slot || room.calledPeers.has(member.peerId)) return;
+            // Every pair makes one call, avoiding duplicate audio/video tracks.
+            if (String(room.peer.id) > String(member.peerId)) return;
+            const call = room.peer.call(member.peerId, stream);
+            if (!call) return;
+            room.calledPeers.add(member.peerId);
+            room.calls.set(member.peerId, call);
+            call.on('stream', media => receiveLiveStream(member.peerId, media));
+            call.on('close', () => {
+                if (room.calls.get(member.peerId) !== call) return;
+                removeLiveStream(member.peerId);
+                if (!room.restarting) connectLivePeers();
+            });
+            call.on('error', () => removeLiveStream(member.peerId));
+        });
+        renderLiveFeeds();
+    }
+
+    function liveCameraReady() {
+        if (!room.role || !stream) return;
+        connectLivePeers();
+        renderLiveFeeds();
     }
 
     function btnLabel() {
         if (busy) return 'Cancel';
-        if (filled() === 0 && !room.done) return room.role === 'host' ? 'Start for everyone' : 'Waiting for host';
-        return photos[room.me.slot] ? 'Retake mine' : 'Capture mine';
+        return room.done ? 'Retake group photo' : 'Start for everyone';
     }
 
     /* ---------- messaging ---------- */
@@ -282,14 +472,18 @@
         photoChanged(mine);
     }
     function recv(slot, data) {
-        if (!Number.isInteger(slot) || slot < 0 || slot >= flow.layout.n) return;
-        const im = new Image();
-        im.onload = () => {
-            const c = mk(im.naturalWidth, im.naturalHeight);
-            c.getContext('2d').drawImage(im, 0, 0);
-            setPhoto(slot, c, false);
-        };
-        im.src = data;
+        if (!Number.isInteger(slot) || slot < 0 || slot >= flow.layout.n) return Promise.resolve();
+        return new Promise(resolve => {
+            const im = new Image();
+            im.onload = () => {
+                const c = mk(im.naturalWidth, im.naturalHeight);
+                c.getContext('2d').drawImage(im, 0, 0);
+                setPhoto(slot, c, false);
+                resolve();
+            };
+            im.onerror = resolve;
+            im.src = data;
+        });
     }
     function photoChanged(mine) {
         buildSlots();
@@ -305,7 +499,7 @@
     function finish() {
         room.done = true;
         const lbl = $('retakeLbl');
-        if (lbl) lbl.textContent = 'Retake my photo';
+        if (lbl) lbl.textContent = 'Retake group photo';
         finishCapture();
     }
 
@@ -327,7 +521,7 @@
         return c;
     }
 
-    /* countdown, then capture my slot */
+    /* Host captures all connected cameras together after the shared countdown. */
     async function goRound(sec) {
         if (busy || view !== 'capture' || !room.role) return;
         if (!stream || !vid.videoWidth) { toast('Camera is not ready. Allow access or upload a photo.'); return; }
@@ -336,9 +530,29 @@
         const old = timer;
         timer = sec;
         try { await countdown(); } finally { timer = old; }
-        if (!abort && room.role) {
-            const c = await shootOnce(room.me.slot);
-            setPhoto(room.me.slot, c, true);
+        if (!abort && room.role === 'host') {
+            const captured = [];
+            for (const member of room.members) {
+                const local = member.slot === room.me.slot;
+                const source = liveVideoForSlot(member.slot);
+                if (!source || !source.videoWidth || !source.videoHeight) {
+                    toast(`Could not capture ${member.name}'s camera. Reconnect and try again.`);
+                    busy = false; abort = false; buildSlots(); return;
+                }
+                captured.push({slot: member.slot, photo: frameFromSource(source, source.videoWidth, source.videoHeight,
+                    flow.layout.slots[member.slot], local && mirror && facing === 'user', local ? camRes : 1)});
+            }
+            // Update the full group atomically. This prevents the last slot from
+            // opening the result screen before every photo has been relayed.
+            captured.forEach(({slot, photo}) => { photos[slot] = photo; });
+            photoVer++;
+            captured.forEach(({slot, photo}) => {
+                send({t: 'photo', slot, data: toJpeg(photo)});
+                recordSiteMetric('photos_captured');
+            });
+            room.done = true;
+            send({t: 'done'});
+            finish();
         }
         busy = false; abort = false;
         buildSlots();
@@ -347,14 +561,29 @@
     function shootClick() {
         if (!room.role) { runSequence(); return; }
         if (busy) { abort = true; return; }
-        if (filled() === 0 && !room.done) {
-            if (room.role === 'guest') { toast('Waiting for the host to start'); return; }
-            const need = flow.layout.n - room.members.length;
-            if (need > 0) { toast(`Waiting for ${need} more ${need === 1 ? 'friend' : 'friends'}`); return; }
-            send({t: 'go', sec: timer});
-            goRound(timer);
+        if (room.role === 'guest') { send({t: 'start-request'}); return; }
+        requestGroupCapture();
+    }
+
+    function requestGroupCapture() {
+        if (room.role !== 'host' || busy) return;
+        if (room.members.length !== flow.layout.n || room.members.some(member => member.ready === false)) {
+            toast('Wait until everyone has joined and loaded the frame');
             return;
         }
+        if (filled() === 0 && !room.done) {
+            const readyCount = room.members.filter(member => member.ready !== false).length;
+            const need = flow.layout.n - readyCount;
+            if (need > 0) { toast(`Waiting for ${need} ${need === 1 ? 'friend' : 'friends'} to join and load the frame`); return; }
+        }
+        if (room.members.some(member => {
+            const video = liveVideoForSlot(member.slot);
+            return member.slot !== room.me.slot && (!room.remoteVideos.has(member.slot) || !video?.videoWidth);
+        })) {
+            toast('Waiting for everyone’s live camera to connect');
+            return;
+        }
+        send({t: 'go', sec: timer});
         goRound(timer);
     }
 
@@ -365,8 +594,16 @@
             const attempt = () => {
                 const code = newCode(), peer = new Peer(PREFIX + code);
                 let opened = false;
-                room = Object.assign(blank(), {role: 'host', code, peer, me: {slot: 0, name}, members: [{slot: 0, name}]});
-                peer.on('open', () => { opened = true; resolve(); });
+                room = Object.assign(blank(), {role: 'host', code, peer, me: {slot: 0, name}, members: [{slot: 0, name, ready: true}], frame: cfg.mode === 'server' ? cfg.template : null});
+                peer.on('open', () => {
+                    opened = true; room.me.peerId = peer.id;
+                    room.members[0].peerId = peer.id;
+                    resolve();
+                });
+                peer.on('call', call => {
+                    if (stream) answerLiveCall(call);
+                    else room.pendingCalls.push(call);
+                });
                 peer.on('connection', hostAccept);
                 peer.on('disconnected', () => { try { peer.reconnect(); } catch (e) {} });
                 peer.on('error', err => {
@@ -399,21 +636,34 @@
             if (slot < 0) { refuse(c, 'That booth is full.'); return; }
             c._slot = slot;
             const name = cleanName(m.name) || `Guest ${slot + 1}`;
-            room.members.push({slot, name});
+            room.members.push({slot, name, peerId: String(m.peerId || c.peer || ''), ready: false});
             room.conns.push(c);
-            c.send({t: 'welcome', slot, name, mode: flow.mode, n: flow.n, presetId: (flow.preset && flow.preset.id) || null, title: flow.name});
+            c.send({t: 'welcome', slot, name, mode: flow.mode, n: flow.n, presetId: (flow.preset && flow.preset.id) || null, title: flow.name,
+                frame: flow.mode === 'server' ? room.frame : null});
             photos.forEach((p, i) => { if (p) c.send({t: 'photo', slot: i, data: toJpeg(p)}); });
             roster();
             toast(`${name} joined`);
         } else if (m.t === 'photo' && c._slot === m.slot && typeof m.data === 'string' && m.data.startsWith('data:image/') && m.data.length < 6e6) {
             send(m, c);
             recv(m.slot, m.data);
+        } else if (m.t === 'ready' && c._slot != null) {
+            const member = room.members.find(item => item.slot === c._slot);
+            if (member && !member.ready) { member.ready = true; roster(); }
+            connectLivePeers();
+        } else if (m.t === 'start-request') {
+            requestGroupCapture();
         }
     }
     function hostDrop(c) {
         if (room.role !== 'host' || !room.conns.includes(c)) return;
         room.conns = room.conns.filter(x => x !== c);
         const m = room.members.find(x => x.slot === c._slot);
+        if (m?.peerId) {
+            room.restarting = true;
+            try { room.calls.get(m.peerId)?.close(); } catch {}
+            removeLiveStream(m.peerId);
+            room.restarting = false;
+        }
         room.members = room.members.filter(x => x.slot !== c._slot);
         if (m) toast(`${m.name} left`);
         roster();
@@ -428,46 +678,67 @@
         return loadPeer().then(() => new Promise((resolve, reject) => {
             const peer = new Peer();
             const me = room = Object.assign(blank(), {role: 'guest', code, peer, me: {slot: -1, name}, settle: {resolve, reject}});
+            peer.on('call', call => {
+                if (stream) answerLiveCall(call);
+                else me.pendingCalls.push(call);
+            });
             me.tmo = setTimeout(() => { if (!me.joined) reject({message: 'timeout'}); }, 12000);
             peer.on('error', err => { if (!me.joined) reject(err); else toast('Connection problem'); });
             peer.on('open', () => {
                 const c = peer.connect(PREFIX + code, {reliable: true});
                 me.conn = c;
-                c.on('open', () => c.send({t: 'hello', name}));
-                c.on('data', m => { if (room === me) guestMsg(m); });
+                c.on('open', () => c.send({t: 'hello', name, peerId: peer.id}));
+                c.on('data', m => { if (room === me) guestMsg(m).catch(() => {}); });
                 c.on('close', () => guestClosed(me));
             });
         }));
     }
-    function guestMsg(m) {
+    async function guestMsg(m) {
         if (!m || typeof m !== 'object') return;
         switch (m.t) {
             case 'welcome': {
-                if (!['instant', 'strip'].includes(m.mode) || !Number.isInteger(m.n) || m.n < 2 || m.n > 4 || !Number.isInteger(m.slot) || m.slot < 0 || m.slot >= m.n) {
+                if (!['instant', 'strip', 'server'].includes(m.mode) || !Number.isInteger(m.n) || m.n < 2 || m.n > 4 || !Number.isInteger(m.slot) || m.slot < 0 || m.slot >= m.n || (m.mode === 'server' && (!m.frame || !Array.isArray(m.frame.slots) || m.frame.slots.length !== m.n || typeof m.frame.image !== 'string'))) {
                     room.settle.reject({why: 'This room uses a different version of the app.'});
                     return;
                 }
                 clearTimeout(room.tmo);
+                room.me = {slot: m.slot, name: String(m.name || ''), peerId: room.peer.id};
+                if (m.mode === 'server') {
+                    const loaded = await startServerFrame(m.frame, {live: true});
+                    if (!loaded) { room.settle.reject({why: 'Could not load the selected frame.'}); return; }
+                } else {
+                    const preset = m.mode === 'strip' ? (STRIPS.find(s => s.id === m.presetId) || {}) : {};
+                    startCapture(m.mode, m.n, preset, String(m.title || 'Live booth'), null, true);
+                }
                 room.joined = true;
-                room.me = {slot: m.slot, name: String(m.name || '')};
-                const preset = m.mode === 'strip' ? (STRIPS.find(s => s.id === m.presetId) || {}) : {};
-                startCapture(m.mode, m.n, preset, String(m.title || 'Live booth'));
+                send({t: 'ready'});
+                const pending = room.pending.splice(0);
+                pending.forEach(message => guestMsg(message));
                 closeDlg();
                 room.settle.resolve();
                 break;
             }
             case 'roster':
-                room.members = Array.isArray(m.members) ? m.members.filter(x => x && Number.isInteger(x.slot)).map(x => ({slot: x.slot, name: String(x.name || '')})) : [];
-                if (room.joined) buildSlots();
+                room.members = Array.isArray(m.members) ? m.members.filter(x => x && Number.isInteger(x.slot)).map(x => ({slot: x.slot, name: String(x.name || ''), peerId: String(x.peerId || ''), ready: x.ready !== false})) : [];
+                if (room.joined) { buildSlots(); connectLivePeers(); }
                 break;
             case 'photo':
-                if (room.joined && typeof m.data === 'string' && m.data.startsWith('data:image/')) recv(m.slot, m.data);
+                if (!room.joined) room.pending.push(m);
+                else if (typeof m.data === 'string' && m.data.startsWith('data:image/')) {
+                    const loading = recv(m.slot, m.data);
+                    room.pendingPhotoLoads.add(loading);
+                    loading.finally(() => room.pendingPhotoLoads.delete(loading));
+                }
                 break;
             case 'go':
-                if (room.joined && !room.done) goRound([3, 5, 10].includes(m.sec) ? m.sec : 3);
+                if (!room.joined) room.pending.push(m);
+                else goRound([3, 5, 10].includes(m.sec) ? m.sec : 3);
                 break;
             case 'done':
-                if (room.joined) finish();
+                if (room.joined) {
+                    await Promise.all([...room.pendingPhotoLoads]);
+                    if (room.joined) finish();
+                }
                 break;
             case 'full':
                 clearTimeout(room.tmo);
@@ -476,7 +747,13 @@
         }
     }
     function guestClosed(me) {
-        if (room !== me || !me.joined) return;
+        if (room !== me) return;
+        if (!me.joined) {
+            me.settle?.reject({why: 'The host closed the booth before your frame finished loading.'});
+            leave();
+            setStatus('The host closed the booth.', true);
+            return;
+        }
         toast('The host closed the booth');
         const away = !room.done && view === 'capture';
         leave();
@@ -490,11 +767,13 @@
         clearTimeout(old.tmo);
         try { old.conns.forEach(c => c.close()); } catch (e) {}
         try { if (old.conn) old.conn.close(); } catch (e) {}
+        try { old.calls.forEach(c => c.close()); } catch (e) {}
         try { if (old.peer) old.peer.destroy(); } catch (e) {}
         $('liveBar').hidden = true;
+        $('liveFeedGrid').replaceChildren(); $('liveFeedGrid').hidden = true;
         const lbl = $('retakeLbl');
         if (lbl) lbl.textContent = 'Retake photos';
-        document.body.classList.remove('room-view');
+        document.body.classList.remove('room-view', 'room-host', 'room-guest');
     }
 
     /* ---------- hook into the existing app ---------- */
@@ -502,9 +781,10 @@
     buildSlots = function () {
         _buildSlots();
         if (!room.role || room.me.slot < 0) return;
-        const n = filled(), total = flow.layout.n;
+        const total = flow.layout.n;
         document.querySelectorAll('#slots .slot').forEach((s, i) => s.classList.toggle('now', i === room.me.slot && !photos[i]));
-        $('capCount').textContent = n >= total ? 'All photos taken' : `${n} of ${total} photos in`;
+        const connected = room.members.filter(member => member.ready !== false).length;
+        $('capCount').textContent = room.done ? 'Group photo ready' : `${connected} of ${total} people connected`;
         $('resetBtn').hidden = true;
         $('shootLbl').textContent = btnLabel();
         renderBar();
@@ -515,15 +795,30 @@
         if (v === 'home' && room.role) leave();
         _show(v);
         document.body.classList.toggle('room-view', !!room.role);
+        document.body.classList.toggle('room-host', room.role === 'host');
+        document.body.classList.toggle('room-guest', room.role === 'guest');
+        if (room.role) renderBar();
+    };
+
+    const _startCam = startCam;
+    startCam = async function () {
+        const reconnect = !!room.role && room.calls.size > 0;
+        if (reconnect) {
+            room.restarting = true;
+            room.calls.forEach(call => { try { call.close(); } catch {} });
+            room.calls.clear(); room.calledPeers.clear(); room.remoteVideos.clear();
+        }
+        await _startCam();
+        if (room.role && stream) {
+            room.restarting = false;
+            liveCameraReady();
+        } else room.restarting = false;
     };
 
     const _handleUpload = handleUpload;
     handleUpload = async function (files) {
-        if (!room.role) return _handleUpload(files);
-        try {
-            const b = await loadBitmap(files[0]);
-            setPhoto(room.me.slot, frameFromSource(b.src, b.w, b.h, flow.layout.slots[room.me.slot], false), true);
-        } catch (e) { toast('Could not read that image'); }
+        if (room.role) { toast('Live Booth captures everyone together from the connected cameras.'); return; }
+        return _handleUpload(files);
     };
 
     $('shootBtn').onclick = shootClick;

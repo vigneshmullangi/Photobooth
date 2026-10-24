@@ -1,0 +1,106 @@
+{% extends "panel/base.html" %}
+{% load static %}
+{% block content %}
+<a class="back-link" href="{% url 'panel:strip_templates' %}"><svg class="i i-sm"><use href="#i-back"/></svg>Photo strips</a>
+<div class="page-head"><div><h1>{% if item %}{{ item.name }}{% else %}Upload strip{% endif %}</h1>
+    <p>{% if item %}{{ item.canvas_width }} &times; {{ item.canvas_height }} px &middot; {{ item.photo_windows|length }} photo opening{{ item.photo_windows|length|pluralize }} detected{% else %}Upload transparent strip artwork. Photo openings are detected automatically.{% endif %}</p></div>
+    {% if item %}<div class="actions"><form method="post" action="{% url 'panel:strip_template_delete' item.pk %}" data-confirm="This permanently deletes the strip." data-confirm-title="Delete {{ item.name }}?">{% csrf_token %}<button class="btn danger" type="submit"><svg class="i i-sm"><use href="#i-trash"/></svg>Delete</button></form></div>{% endif %}
+</div>
+
+<form method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+    <div class="grid-form">
+        <div class="stack">
+            <section class="card"><div class="card-body">
+                {% if form.non_field_errors %}<div class="form-error">{{ form.non_field_errors|join:" " }}</div>{% endif %}
+                {% include "panel/_field.html" with field=form.name %}
+                <div class="row-2">{% include "panel/_field.html" with field=form.order %}</div>
+                {% if not item %}<div class="field{% if form.image.errors %} has-error{% endif %}">
+                    <label for="{{ form.image.id_for_label }}">{% if item %}Replace image{% else %}Strip artwork{% endif %}</label>
+                    <div class="file-pick"><span class="thumb checker" id="stripThumb"{% if item %} style="background-image:url('{{ item.image.url }}')"{% endif %}></span>
+                        <input type="file" name="image" id="{{ form.image.id_for_label }}" accept="image/*" data-preview="#stripThumb"{% if not item %} required{% endif %}></div>
+                    <span class="help">Upload an initial strip image to create this design. You will upload and edit the 2-, 3-, and 4-photo artwork separately in each layout preview.</span>
+                    {% if form.image.errors %}<div class="errors">{{ form.image.errors|join:" " }}</div>{% endif %}
+                </div>{% endif %}
+                <label class="switch"><input type="checkbox" name="is_active"{% if form.is_active.value %} checked{% endif %}><span class="track"></span><span class="text"><b>Visible on the website</b><span>Guests can choose active strips with a matching number of photo openings.</span></span></label>
+            </div></section>
+
+            {% if item %}
+            <section class="card">
+                <div class="card-head"><div><h2>Photo layouts</h2><span class="aside">Edit the camera openings independently for each photo count.</span></div></div>
+                <div class="card-body">
+                    <nav class="actions" aria-label="Photo count layout">
+                        {% for count in "234" %}<a class="btn sm{% if variant_count|stringformat:'s' == count %} primary{% endif %}" href="?count={{ count }}">{{ count }} photos</a>{% endfor %}
+                    </nav>
+                    <label class="studio-control" style="display:block;margin:16px 0"><span>{{ variant_count }}-photo artwork</span><input type="file" name="layout_image_{{ variant_count }}" accept="image/*"><small>Choose or replace the artwork for this layout. Its preview and camera-window positions are saved to this count only.</small></label>
+                    {{ slotset.management_form }}
+                    <div class="table-wrap"><table class="t" id="slotRows"><thead><tr><th>Photo</th><th>Left %</th><th>Top %</th><th>Width %</th><th>Height %</th></tr></thead><tbody>
+                    {% for f in slotset %}<tr>{% for h in f.hidden_fields %}{{ h }}{% endfor %}<td>{{ forloop.counter }}{{ f.order.as_hidden }}</td><td>{{ f.x }}{{ f.x.errors }}</td><td>{{ f.y }}{{ f.y.errors }}</td><td>{{ f.w }}{{ f.w.errors }}</td><td>{{ f.h }}{{ f.h.errors }}</td></tr>{% endfor %}
+                    </tbody></table></div>
+                    <p class="help">Drag the numbered boxes in the preview, or enter exact percentages here.</p>
+                </div>
+            </section>
+            <section class="card">
+                <div class="card-head"><div><h2>Studio fields</h2><span class="aside">Let guests personalize this strip in Studio.</span></div><span class="table-unit">Text · Date · Image</span></div>
+                {{ fieldset.management_form }}
+                {% if fieldset.non_form_errors %}<div class="card-body"><div class="form-error">{{ fieldset.non_form_errors|join:" " }}</div></div>{% endif %}
+                <div class="studio-field-list" id="textRows">
+                    {% for f in fieldset %}
+                    <article class="studio-field-card editor-row{% if f.DELETE.value %} is-deleted{% endif %}">
+                        {% for h in f.hidden_fields %}{{ h }}{% endfor %}{{ f.order.as_hidden }}
+                        <header class="studio-field-card-head"><span class="row-index">{{ forloop.counter }}</span><span class="studio-field-title">{{ f.label.value|default:"New field" }}</span><label class="remove-control" title="Remove Studio field">{{ f.DELETE }}<span aria-hidden="true">&times;</span><span class="sr-only">Remove Studio field {{ forloop.counter }}</span></label></header>
+                        <div class="studio-field-grid">
+                            <label class="studio-control"><span>Label</span>{{ f.label }}{{ f.label.errors }}</label>
+                            <label class="studio-control"><span>Field type</span>{{ f.data_type }}</label>
+                            <label class="studio-control field-setting" data-setting="default"><span>Default text</span>{{ f.default_text }}</label>
+                            <div class="studio-control field-setting default-image-setting" data-setting="image"><span>Default image</span>{% if f.instance.default_image %}<img class="default-image-thumb" src="{{ f.instance.default_image.url }}" alt="Current default image for {{ f.label.value }}">{% endif %}{{ f.default_image }}{{ f.default_image.errors }}<small>Optional. Guests can replace this image in Studio.</small></div>
+                            <label class="studio-control field-setting" data-setting="max"><span>Max characters</span>{{ f.max_length }}</label>
+                            <label class="studio-control field-setting" data-setting="font"><span>Font</span>{{ f.font }}</label>
+                            <label class="studio-control field-setting" data-setting="font_size"><span>Font size</span>{{ f.font_size }}</label>
+                            <label class="studio-control field-setting" data-setting="color"><span>Text colour</span><span class="colour-control"><input type="color" data-color-picker value="{{ f.color.value|default:'#b8893b' }}" aria-label="Choose text colour">{{ f.color }}</span></label>
+                            <label class="studio-control field-setting" data-setting="align"><span>Alignment</span>{{ f.align }}</label>
+                            <label class="studio-control field-setting" data-setting="effect"><span>Effect</span>{{ f.effect }}</label>
+                            <div class="studio-control studio-caps field-setting" data-setting="style">{{ f.bold }}<span>Bold</span>{{ f.italic }}<span>Italic</span>{{ f.underline }}<span>Underline</span>{{ f.uppercase }}<span>Uppercase</span></div>
+                        </div>
+                        <p class="studio-type-hint" data-hint="upload">Guests can choose an image in Studio. It appears inside this field’s preview box.</p>
+                        <p class="studio-type-hint" data-hint="text">Guests can change this text in Studio.</p>
+                        <p class="studio-type-hint" data-hint="date">Guests can choose a date in Studio.</p>
+                    </article>
+                    {% endfor %}
+                </div>
+                <div class="form-actions"><button type="button" class="btn sm" id="addText"><svg class="i i-sm"><use href="#i-plus"/></svg>Add field</button><span class="help muted">Set its label and style, then drag its box in the preview to position it.</span></div>
+                <template id="textTemplate"><article class="studio-field-card editor-row">
+                    {% for h in fieldset.empty_form.hidden_fields %}{{ h }}{% endfor %}{{ fieldset.empty_form.order.as_hidden }}
+                    <header class="studio-field-card-head"><span class="row-index"></span><span class="studio-field-title">New field</span><label class="remove-control" title="Remove Studio field">{{ fieldset.empty_form.DELETE }}<span aria-hidden="true">&times;</span><span class="sr-only">Remove Studio field</span></label></header>
+                    <div class="studio-field-grid">
+                        <label class="studio-control"><span>Label</span>{{ fieldset.empty_form.label }}</label><label class="studio-control"><span>Field type</span>{{ fieldset.empty_form.data_type }}</label>
+                        <label class="studio-control field-setting" data-setting="default"><span>Default text</span>{{ fieldset.empty_form.default_text }}</label>
+                        <div class="studio-control field-setting default-image-setting" data-setting="image"><span>Default image</span>{{ fieldset.empty_form.default_image }}<small>Optional. Guests can replace this image in Studio.</small></div>
+                        <label class="studio-control field-setting" data-setting="max"><span>Max characters</span>{{ fieldset.empty_form.max_length }}</label><label class="studio-control field-setting" data-setting="font"><span>Font</span>{{ fieldset.empty_form.font }}</label>
+                        <label class="studio-control field-setting" data-setting="font_size"><span>Font size</span>{{ fieldset.empty_form.font_size }}</label>
+                        <label class="studio-control field-setting" data-setting="color"><span>Text colour</span><span class="colour-control"><input type="color" data-color-picker value="#b8893b" aria-label="Choose text colour">{{ fieldset.empty_form.color }}</span></label>
+                        <label class="studio-control field-setting" data-setting="align"><span>Alignment</span>{{ fieldset.empty_form.align }}</label><label class="studio-control field-setting" data-setting="effect"><span>Effect</span>{{ fieldset.empty_form.effect }}</label>
+                        <div class="studio-control studio-caps field-setting" data-setting="style">{{ fieldset.empty_form.bold }}<span>Bold</span>{{ fieldset.empty_form.italic }}<span>Italic</span>{{ fieldset.empty_form.underline }}<span>Underline</span>{{ fieldset.empty_form.uppercase }}<span>Uppercase</span></div>
+                    </div>
+                    <p class="studio-type-hint" data-hint="upload">Guests can choose an image in Studio. It appears inside this field’s preview box.</p><p class="studio-type-hint" data-hint="text">Guests can change this text in Studio.</p><p class="studio-type-hint" data-hint="date">Guests can choose a date in Studio.</p>
+                </article></template>
+            </section>
+            {% endif %}
+
+            <div class="card"><div class="form-actions" style="border:0;background:none"><button class="btn primary" type="submit">Save changes</button><a class="btn" href="{% url 'panel:strip_templates' %}">Cancel</a></div></div>
+        </div>
+
+        <aside class="card"><div class="card-head"><h2>Strip preview</h2></div>
+            {% if item %}
+            <div class="preview-box"><div class="frame-preview checker" id="stripPreview">
+                <img src="{{ variant_image }}" alt="{{ item.name }} · {{ variant_count }} photos">
+                {% for t in studio_fields %}<div class="win txt{% if t.data_type == 'upload' %} image-field{% endif %}" data-text-index="{{ forloop.counter0 }}" data-image-url="{% if t.default_image %}{{ t.default_image.url }}{% endif %}" style="left:{{ t.x }}%;top:{{ t.y }}%;width:{{ t.w }}%;height:{{ t.h }}%;color:{{ t.color }}">{% if t.data_type == 'upload' and t.default_image %}<img class="field-image-preview" src="{{ t.default_image.url }}" alt="Default image for {{ t.label }}">{% endif %}<span>{{ t.default_text|default:t.label }}</span><i class="txt-resize" aria-hidden="true"></i></div>{% endfor %}
+                {% for w in windows %}<div class="win camera-window" data-slot-index="{{ forloop.counter0 }}" style="left:{{ w.x }}%;top:{{ w.y }}%;width:{{ w.w }}%;height:{{ w.h }}%">{{ forloop.counter }}</div>{% endfor %}
+            </div></div>
+            <div class="card-body" style="padding-top:0"><span class="help muted">Editing the {{ variant_count }} photo layout. Camera openings and Studio fields can be dragged in this preview.</span></div>
+            {% else %}<div class="qr-empty"><div class="ph"><svg class="i"><use href="#i-frame"/></svg></div><p>Save the strip first to add Studio fields and position them in the preview.</p></div>{% endif %}
+        </aside>
+    </div>
+</form>
+{% endblock %}
+{% block page_scripts %}{% if item %}<script src="{% static 'panel/frame-text-positioner.js' %}"></script>{% endif %}{% endblock %}

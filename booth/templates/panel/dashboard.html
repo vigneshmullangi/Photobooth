@@ -25,24 +25,19 @@
         <div class="num">{{ stats.frames_active }}</div>
         <div class="sub">{{ stats.frames }} frame{{ stats.frames|pluralize }} uploaded</div>
     </a>
-    <a class="card stat" href="{% url 'panel:creations' %}">
-        <div class="label"><svg class="i i-sm"><use href="#i-image"/></svg>Gallery pictures</div>
-        <div class="num">{{ stats.creations }}</div>
-        <div class="sub">{{ stats.creations_week }} in the last 7 days</div>
-    </a>
 </div>
 
 <div class="grid-2">
     <div class="stack">
         <section class="card">
             <div class="card-head"><h2>Activity, last 14 days</h2>
-                <div class="aside legend"><span><i style="background:var(--ink)"></i>Inquiries ({{ chart_total_inq }})</span><span><i style="background:var(--accent)"></i>Gallery saves ({{ chart_total_cre }})</span></div>
+                <div class="aside legend"><span><i style="background:var(--ink)"></i>Inquiries ({{ chart_total_inq }})</span></div>
             </div>
             <div class="chart">
-                <div class="bars" role="img" aria-label="Inquiries and gallery saves per day for the last 14 days">
+                <div class="bars" role="img" aria-label="Inquiries per day for the last 14 days">
                     {% for d in chart %}
-                    <div class="bar-col" title="{{ d.label }}: {{ d.inq }} inquir{{ d.inq|pluralize:'y,ies' }}, {{ d.cre }} gallery save{{ d.cre|pluralize }}">
-                        <i class="b-inq" style="height:{{ d.inq_h }}%"></i><i class="b-cre" style="height:{{ d.cre_h }}%"></i>
+                    <div class="bar-col" title="{{ d.label }}: {{ d.inq }} inquir{{ d.inq|pluralize:'y,ies' }}">
+                        <i class="b-inq" style="height:{{ d.inq_h }}%"></i>
                     </div>
                     {% endfor %}
                 </div>
@@ -82,14 +77,6 @@
             </ul>
             {% else %}
             <div class="empty"><svg class="i"><use href="#i-mail"/></svg><h3>No inquiries yet</h3><p>Messages sent from the website contact form will appear here.</p></div>
-            {% endif %}
-        </section>
-        <section class="card">
-            <div class="card-head"><h2>Latest gallery pictures</h2><a class="aside link" href="{% url 'panel:creations' %}">View all</a></div>
-            {% if recent_creations %}
-            <div class="mini-gallery">{% for c in recent_creations %}<a href="{{ c.image.url }}" target="_blank" rel="noopener" style="background-image:url('{{ c.image.url }}')" aria-label="Picture {{ c.pk }}"></a>{% endfor %}</div>
-            {% else %}
-            <div class="empty"><svg class="i"><use href="#i-image"/></svg><h3>Nothing saved yet</h3><p>Pictures guests save to the gallery appear here.</p></div>
             {% endif %}
         </section>
     </div>

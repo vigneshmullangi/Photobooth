@@ -1,9 +1,9 @@
 """Find the transparent 'photo windows' in a frame PNG.
 
-Each fully transparent region that does not touch the image border becomes one
-photo slot (returned as percentages of the image size). Works for single
-frames, stacked strips and collage layouts. Admins can still fine-tune the
-numbers afterwards.
+The largest fully transparent region that does not touch the image border
+becomes one photo slot (returned as percentages of the image size). Works for
+single frames and selects the largest complete opening as the camera window.
+Admins can still fine-tune its position and size afterwards.
 """
 from collections import deque
 
@@ -12,7 +12,7 @@ from PIL import Image
 BLEED = 0.4  # percent; photo slightly overlaps the frame so there are no gaps
 
 
-def detect_windows(fileobj, max_slots=4):
+def detect_windows(fileobj, max_slots=1, fallback=True, detect_light=False):
     with Image.open(fileobj) as im:
         im = im.convert('RGBA')
         W, H = im.size
@@ -47,9 +47,42 @@ def detect_windows(fileobj, max_slots=4):
 
     min_area = 0.012 * gw * gh
     good = [c for c in comps if not c['touches'] and c['area'] >= min_area]
-    if not good:
+    if not good and fallback:
         good = sorted([c for c in comps if c['area'] >= min_area], key=lambda c: -c['area'])[:1]
     if not good:
+        if detect_light:
+            rgb = im.convert('RGB').resize((gw, gh), Image.BILINEAR)
+            pixels = list(rgb.getdata())
+            mask = [min(r, g, b) >= 225 and max(r, g, b) - min(r, g, b) <= 28 for r, g, b in pixels]
+            light_seen = bytearray(gw * gh)
+            light_boxes = []
+            for start, is_light in enumerate(mask):
+                if not is_light or light_seen[start]:
+                    continue
+                light_seen[start] = 1
+                q = deque([start])
+                minx = maxx = start % gw
+                miny = maxy = start // gw
+                area = 0
+                while q:
+                    p = q.popleft(); x, y = p % gw, p // gw; area += 1
+                    minx, maxx = min(minx, x), max(maxx, x)
+                    miny, maxy = min(miny, y), max(maxy, y)
+                    for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                        if 0 <= nx < gw and 0 <= ny < gh:
+                            n = ny * gw + nx
+                            if mask[n] and not light_seen[n]:
+                                light_seen[n] = 1; q.append(n)
+                if area >= 0.012 * gw * gh and minx > 0 and miny > 0 and maxx < gw - 1 and maxy < gh - 1:
+                    light_boxes.append((area, minx, miny, maxx + 1, maxy + 1))
+            light_boxes.sort(reverse=True)
+            if light_boxes:
+                largest = light_boxes[0][0]
+                light_boxes = [box for box in light_boxes if box[0] >= largest * .25][:max_slots]
+                light_boxes.sort(key=lambda box: ((box[2] + box[4]) / 2, box[1] + box[3]))
+                return [{'x': round(x0 / gw * 100, 2), 'y': round(y0 / gh * 100, 2),
+                         'w': round((x1 - x0) / gw * 100, 2), 'h': round((y1 - y0) / gh * 100, 2)}
+                        for _, x0, y0, x1, y1 in light_boxes]
         # Many PNG templates are exported with sample photos still baked into
         # clearly outlined windows. Detect repeated warm photo-frame borders
         # so those sample images can be replaced during capture too.
@@ -87,16 +120,20 @@ def detect_windows(fileobj, max_slots=4):
             row_i += 2
             if len(outlined) >= max_slots:
                 break
-        if len(outlined) >= 2:
-            outlined.sort(key=lambda box: (box[1] + box[3]) / 2)
+        if len(outlined) >= (1 if detect_light else 2):
+            outlined.sort(key=lambda box: (box[2] - box[0]) * (box[3] - box[1]), reverse=True)
+            outlined = outlined[:max_slots]
             return [{'x': round(x0 / gw * 100, 2), 'y': round(y0 / gh * 100, 2),
                      'w': round((x1 - x0) / gw * 100, 2), 'h': round((y1 - y0) / gh * 100, 2)}
                     for x0, y0, x1, y1 in outlined]
-        return [{'x': 10.0, 'y': 10.0, 'w': 80.0, 'h': 60.0}]
+        return [{'x': 10.0, 'y': 10.0, 'w': 80.0, 'h': 60.0}] if fallback else []
 
     good = sorted(good, key=lambda c: -c['area'])[:max_slots]
     biggest = good[0]['area']
     good = [c for c in good if c['area'] >= biggest * 0.25]
+
+    # Keep the largest complete opening, ignoring smaller transparent details.
+    good = good[:max_slots]
 
     # reading order: top to bottom, left to right within a row
     good.sort(key=lambda c: (c['box'][1] + c['box'][3]) / 2)

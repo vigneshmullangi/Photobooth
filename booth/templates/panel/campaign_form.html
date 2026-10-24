@@ -62,6 +62,7 @@
         <div class="card-body">
             <div class="qr-frame"><img src="{% url 'panel:campaign_qr' campaign.pk %}" alt="QR code for {{ campaign.brand_name }}"></div>
             <div class="qr-meta">
+                <div class="notice info"><svg class="i"><use href="#i-qr"/></svg><span>Scan the clear QR code to open the campaign page. The brand logo appears above it on the downloaded image.</span></div>
                 <a class="btn primary block" href="{% url 'panel:campaign_qr' campaign.pk %}?download=1"><svg class="i i-sm"><use href="#i-download"/></svg>Download QR code (PNG)</a>
                 <div class="url-box"><code title="{{ campaign.public_url }}">{{ campaign.public_url }}</code>
                     <button type="button" class="btn sm" data-copy="{{ campaign.public_url }}"><svg class="i i-sm"><use href="#i-copy"/></svg><span class="copy-label">Copy</span></button></div>

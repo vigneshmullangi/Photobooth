@@ -13,9 +13,35 @@ from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 import qrcode
 
-from .models import BusinessCampaign, Category, Creation, FrameSlot, FrameTemplate, FrameTextField
+from .models import BusinessCampaign, Category, Creation, FrameSlot, FrameTemplate, FrameTextField, GuestAccountProfile, StripTemplate
 
 CHECKER = 'repeating-conic-gradient(#ddd 0 25%,#fff 0 50%) 0 0/14px 14px'
+
+
+@admin.register(GuestAccountProfile)
+class GuestAccountProfileAdmin(admin.ModelAdmin):
+    """Account directory for staff; password values are intentionally never displayed."""
+    list_display = ('organization_name', 'email', 'created', 'last_login')
+    search_fields = ('organization_name', 'user__email', 'user__username')
+    list_filter = ('user__is_active',)
+    readonly_fields = ('user', 'organization_name', 'email', 'created', 'last_login')
+    fields = ('organization_name', 'email', 'created', 'last_login')
+    ordering = ('-user__date_joined',)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user')
+
+    @admin.display(description='Email', ordering='user__email')
+    def email(self, obj):
+        return obj.user.email
+
+    @admin.display(description='Account created', ordering='user__date_joined')
+    def created(self, obj):
+        return obj.user.date_joined
+
+    @admin.display(description='Last login', ordering='user__last_login')
+    def last_login(self, obj):
+        return obj.user.last_login
 
 
 @admin.register(Category)
@@ -31,6 +57,15 @@ class CategoryAdmin(admin.ModelAdmin):
     @admin.display(description='Frames', ordering='_n')
     def frames(self, obj):
         return obj._n
+
+
+@admin.register(StripTemplate)
+class StripTemplateAdmin(admin.ModelAdmin):
+    list_display = ('name', 'photo_count', 'is_active', 'order', 'created')
+    list_editable = ('photo_count', 'is_active', 'order')
+    list_filter = ('photo_count', 'is_active')
+    search_fields = ('name',)
+    fields = ('name', 'photo_count', 'image', 'is_active', 'order')
 
 
 class FrameTextFieldAdminForm(forms.ModelForm):

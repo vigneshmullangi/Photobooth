@@ -4,7 +4,7 @@ from django import forms
 from django.contrib.auth.forms import AuthenticationForm
 from django.forms import inlineformset_factory
 
-from ..models import BusinessCampaign, Category, FrameSlot, FrameTemplate, FrameTextField
+from ..models import BusinessCampaign, Category, FrameSlot, FrameTemplate, FrameTextField, StripLayoutVariant, StripPhotoWindow, StripStudioField, StripTemplate
 
 HOST_LABEL = re.compile(r'^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$')
 
@@ -27,6 +27,53 @@ class CategoryForm(forms.ModelForm):
     class Meta:
         model = Category
         fields = ('name', 'order', 'is_active')
+
+
+class StripTemplateForm(forms.ModelForm):
+    class Meta:
+        model = StripTemplate
+        fields = ('name', 'image', 'order', 'is_active')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.pk:
+            self.fields['image'].required = False
+
+
+class StripStudioFieldForm(forms.ModelForm):
+    font_size = forms.TypedChoiceField(
+        choices=[(str(size / 24), f'{size} pt') for size in
+                 (8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72, 96, 120)],
+        coerce=float,
+        label='Font size',
+    )
+
+    class Meta:
+        model = StripStudioField
+        fields = ('order', 'label', 'data_type', 'default_text', 'default_image', 'max_length',
+                  'x', 'y', 'w', 'h', 'font', 'font_size', 'bold', 'italic', 'underline',
+                  'effect', 'color', 'align', 'uppercase')
+        widgets = {'x': forms.HiddenInput, 'y': forms.HiddenInput,
+                   'w': forms.HiddenInput, 'h': forms.HiddenInput}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.pk:
+            self.fields['default_image'].required = False
+
+
+StripStudioFieldFormSet = inlineformset_factory(
+    StripTemplate, StripStudioField, form=StripStudioFieldForm, extra=0, can_delete=True)
+
+
+class StripPhotoWindowForm(forms.ModelForm):
+    class Meta:
+        model = StripPhotoWindow
+        fields = ('order', 'x', 'y', 'w', 'h')
+
+
+StripPhotoWindowFormSet = inlineformset_factory(
+    StripLayoutVariant, StripPhotoWindow, form=StripPhotoWindowForm, extra=0, can_delete=False)
 
 
 class CampaignForm(forms.ModelForm):

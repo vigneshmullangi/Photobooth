@@ -66,7 +66,7 @@ def remove_checkerboard(fileobj):
         # must contain BOTH tones of a checkerboard (white and light grey), not just flat white
         hist = mn.histogram(mask=ImageChops.multiply(up, strict))
         total = sum(hist)
-        if not total or sum(hist[245:]) / total < .12 or sum(hist[170:240]) / total < .12:
+        if not total or sum(hist[252:]) / total < .12 or sum(hist[170:252]) / total < .12:
             continue
         remove = ImageChops.lighter(remove, ImageChops.multiply(up, strict))
 

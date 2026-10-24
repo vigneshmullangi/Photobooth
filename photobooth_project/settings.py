@@ -29,6 +29,10 @@ INSTALLED_APPS = [
 
 LOGIN_URL = 'panel:login'
 LOGIN_REDIRECT_URL = 'panel:dashboard'
+# Register GOOGLE_OAUTH_REDIRECT_URI in the Google OAuth web client.
+GOOGLE_OAUTH_CLIENT_ID = env('GOOGLE_OAUTH_CLIENT_ID')
+GOOGLE_OAUTH_CLIENT_SECRET = env('GOOGLE_OAUTH_CLIENT_SECRET')
+GOOGLE_OAUTH_REDIRECT_URI = env('GOOGLE_OAUTH_REDIRECT_URI')
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

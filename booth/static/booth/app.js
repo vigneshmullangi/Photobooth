@@ -7,7 +7,109 @@
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
 const campaignConfig = JSON.parse($('campaignConfig').textContent);
+const googleAuthConfig = JSON.parse($('googleAuthConfig')?.textContent || '{"authenticated":false,"googleStartUrl":"/auth/google/start/","googleEnabled":false}');
 const adminStudioConfig = JSON.parse($('adminStudioConfig')?.textContent || 'null');
+let accountPopup = null, pendingAccountAction = null;
+window.addEventListener('message', event => {
+    if (event.origin !== location.origin || event.source !== accountPopup || event.data?.type !== 'photobooth-account-ready') return;
+    googleAuthConfig.authenticated = true;
+    accountPopup = null;
+    const action = pendingAccountAction;
+    pendingAccountAction = null;
+    action?.();
+});
+function withAccount(action) {
+    const next = new URL('/', location.origin);
+    if (flow?.serverTemplate?.id) next.searchParams.set('resume_frame', flow.serverTemplate.id);
+    pendingAccountAction = action;
+    accountPopup = window.open(`/auth/google/?next=${encodeURIComponent(next.pathname + next.search)}&popup=1`, 'photoboothAccount', 'popup,width=520,height=720');
+    if (!accountPopup) {
+        pendingAccountAction = null;
+        toast('Allow pop-ups to sign in or create an account.');
+    }
+}
+const SITE_STATS_URL = '/api/site-stats/';
+const SITE_METRICS_URL = '/api/site-metrics/';
+function renderSiteStats(stats) {
+    const values = {
+        photos_captured: stats.photos_captured,
+        users: stats.users,
+        downloads: stats.downloads,
+        active_now: stats.active_now,
+    };
+    Object.entries(values).forEach(([key, value]) => {
+        const node = document.querySelector(`[data-site-stat="${key}"]`);
+        if (node && Number.isFinite(Number(value))) node.textContent = Number(value).toLocaleString();
+    });
+}
+async function refreshSiteStats() {
+    const response = await fetch(SITE_STATS_URL, {credentials: 'same-origin', cache: 'no-store'});
+    if (!response.ok) throw new Error(`Stats request failed (${response.status})`);
+    renderSiteStats(await response.json());
+}
+function recordSiteMetric(event) {
+    fetch(SITE_METRICS_URL, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('meta[name="csrf"]').content,
+        },
+        body: JSON.stringify({event}),
+    }).then(async response => {
+        if (!response.ok) throw new Error(`Metric request failed (${response.status})`);
+        renderSiteStats(await response.json());
+    }).catch(error => console.error('Could not record site metric:', error));
+}
+function startSiteStats() {
+    if (adminStudioConfig) return;
+    refreshSiteStats().catch(error => console.error('Could not load site stats:', error));
+    window.setInterval(() => refreshSiteStats().catch(error => console.error('Could not refresh site stats:', error)), 60_000);
+}
+let printerAnimation = null;
+function initPrinterAnimation(templates = []) {
+    const card = $('heroPrinter');
+    const paperWindow = $('printerPaperWindow');
+    if (!card || !paperWindow) return;
+    if (!printerAnimation) {
+        printerAnimation = {card, paperWindow, outputs: [], index: 0, reduceMotion: window.matchMedia('(prefers-reduced-motion: reduce)')};
+        card.addEventListener('animationend', event => {
+            if (!printerAnimation.reduceMotion.matches && event.target === printerAnimation.outputs[printerAnimation.index]) showPrinterOutput(printerAnimation.index + 1);
+        });
+        card.addEventListener('click', () => showPrinterOutput(printerAnimation.index + 1));
+        card.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                showPrinterOutput(printerAnimation.index + 1);
+            }
+        });
+        printerAnimation.reduceMotion.addEventListener?.('change', () => showPrinterOutput(printerAnimation.index));
+    }
+    const outputs = templates.length ? templates.map(template => {
+        const image = el('img', 'printer-template');
+        image.src = template.image;
+        image.alt = `${template.name} photo frame`;
+        image.draggable = false;
+        return image;
+    }) : STRIPS.map(preset => {
+        const strip = el('div', `printer-strip strip-${preset.id}`);
+        strip.style.setProperty('--photo-count', preset.n);
+        for (let i = 0; i < preset.n; i++) strip.appendChild(el('i', 'strip-photo'));
+        return strip;
+    });
+    printerAnimation.outputs = outputs;
+    printerAnimation.paperWindow.replaceChildren(...outputs);
+    printerAnimation.index = 0;
+    showPrinterOutput(0);
+}
+function showPrinterOutput(nextIndex) {
+    if (!printerAnimation?.outputs.length) return;
+    printerAnimation.outputs.forEach(output => output.classList.remove('is-printing'));
+    printerAnimation.index = (nextIndex + printerAnimation.outputs.length) % printerAnimation.outputs.length;
+    const output = printerAnimation.outputs[printerAnimation.index];
+    void output.offsetWidth;
+    output.classList.add('is-printing');
+}
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const mk = (w, h) => {
@@ -25,6 +127,7 @@ const el = (tag, cls, html) => {
 const pad2 = n => String(n).padStart(2, '0');
 const SAVED_TEMPLATES_KEY = 'photobooth.saved-templates.v1';
 let editingSavedTemplateKey = null;
+let editingPersonalizedTemplateKey = null;
 const fmtDate = iso => {
     const [y, m, d] = iso.split('-').map(Number);
     return new Date(y, m - 1, d).toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'}).replace(/,/g, '');
@@ -138,6 +241,20 @@ const STRIPS = [
     {id: 'mint', name: 'Sage', n: 3, bg: {mode: 'gradient', c1: '#edf1e9', c2: '#d8e3d4'}, pattern: {id: 'grid', color: '#4b6655', alpha: .045}},
     {id: 'retro', name: 'Terracotta', n: 3, bg: {mode: 'gradient', c1: '#f2e4d6', c2: '#e9cfb6'}, filter: 'Vintage'}
 ];
+const ADMIN_STRIPS = JSON.parse($('stripTemplateConfig')?.textContent || '[]');
+STRIPS.push(...ADMIN_STRIPS.map(item => ({...item, stripArtwork: item.image})));
+const stripArtworkImages = new Map();
+function drawStripArtwork(ctx, design, layout) {
+    const url = design.stripArtwork;
+    if (!url) return;
+    let image = stripArtworkImages.get(url);
+    if (!image) {
+        image = new Image(); stripArtworkImages.set(url, image);
+        image.onload = () => { if (doc?.stripArtwork === url) draw(); renderStripChoices?.(); };
+        image.src = url;
+    }
+    if (image.complete && image.naturalWidth) ctx.drawImage(image, 0, 0, layout.W, layout.H);
+}
 
 /* ---------- layouts (document units = px) ---------- */
 function makeLayout(kind, n) {
@@ -162,6 +279,15 @@ function makeStripLayout(n) {
     return {kind: 'strip', n, W, H, slots, foot: {y: H - pad, h: pad}};
 }
 const layoutFor = (mode, n) => mode === 'strip' ? makeStripLayout(n) : (n === 1 ? makeLayout('single', 1) : n === 4 ? makeLayout('grid', 4) : makeLayout('stack', n));
+function stripLayoutForPreset(n, preset) {
+    if (preset?.customArtwork && preset.n === n && preset.photoWindows?.length === n && preset.width && preset.height) {
+        return {kind: 'strip', n, W: preset.width, H: preset.height,
+            slots: preset.photoWindows.map(window => ({x: window.x * preset.width, y: window.y * preset.height,
+                w: window.w * preset.width, h: window.h * preset.height})),
+            foot: {y: preset.height, h: 0}};
+    }
+    return layoutFor('strip', n);
+}
 
 /* ---------- document ---------- */
 function newDoc(layout, p = {}) {
@@ -170,6 +296,7 @@ function newDoc(layout, p = {}) {
     return {
         layout,
         overlayOnly: !!p.overlayOnly,
+        stripArtwork: p.stripArtwork || '',
         bg: {mode: bg.mode, c1: bg.c1, c2: bg.c2 || bg.c1, imgId: null, preset: bg.preset || ''},
         pattern: {id: pt.id || 'none', color: pt.color || null, alpha: pt.alpha ?? .14, size: pt.size ?? 1},
         text: {caption: p.caption || '', items: p.caption ? [{id: 1, value: p.caption}] : [], nextItemId: 2, font: p.font ?? 0, color: p.ink || null, size: 1, bold: false, italic: false, showDate: false, date: '', location: ''},
@@ -248,16 +375,19 @@ function seeded(seed) {
     return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
 }
 
-/* size + clamped offset of a zoomed/panned background image */
-function bgBox(b, L, iw, ih) {
-    const z = clamp(b.zoom || 1, .5, 4), k = Math.max(L.W / iw, L.H / ih) * z, w = iw * k, h = ih * k;
+/* size + clamped offset of an image in the editor */
+function bgBox(b, L, iw, ih, fit = 'contain') {
+    const baseScale = fit === 'cover'
+        ? Math.max(L.W / iw, L.H / ih)
+        : Math.min(L.W / iw, L.H / ih);
+    const z = clamp(b.zoom || 1, .5, 4), k = baseScale * z, w = iw * k, h = ih * k;
     const mx = Math.max(0, (w - L.W) / 2), my = Math.max(0, (h - L.H) / 2);
     return {w, h, mx, my, ox: clamp(b.ox || 0, -mx, mx), oy: clamp(b.oy || 0, -my, my)};
 }
 function bgImgBox(d) {
     const r = IMGS[d.bg.imgId];
     if (!r) return null;
-    return bgBox(d.bg, d.layout, r.img.naturalWidth || r.img.width, r.img.naturalHeight || r.img.height);
+    return bgBox(d.bg, d.layout, r.img.naturalWidth || r.img.width, r.img.naturalHeight || r.img.height, 'cover');
 }
 
 function drawBg(ctx, d, L) {
@@ -265,8 +395,8 @@ function drawBg(ctx, d, L) {
     if (b.mode === 'transparent') return;
     if (b.mode === 'image' && IMGS[b.imgId]) {
         const im = IMGS[b.imgId].img, iw = im.naturalWidth || im.width, ih = im.naturalHeight || im.height;
-        const bx = bgBox(b, L, iw, ih);
-        ctx.fillStyle = b.c1 || '#ffffff'; ctx.fillRect(0, 0, L.W, L.H);
+        const bx = bgBox(b, L, iw, ih, 'cover');
+        if (!b.preserveAlpha) { ctx.fillStyle = b.c1 || '#ffffff'; ctx.fillRect(0, 0, L.W, L.H); }
         ctx.drawImage(im, (L.W - bx.w) / 2 + bx.ox, (L.H - bx.h) / 2 + bx.oy, bx.w, bx.h);
         return;
     }
@@ -585,6 +715,7 @@ function render(ctx, d, o) {
             drawSlot(ctx, s, photo, sc, corner, i, !!o.placeholderSlots);
         }
     });
+    drawStripArtwork(ctx, d, L);
     if (activeServerFrame && L.kind === 'server') { ctx.drawImage(activeServerFrame, 0, 0, L.W, L.H); drawFrameTexts(ctx, L); }
     drawFooter(ctx, d, L, sc);
     d.stickers.forEach(s => drawSticker(ctx, s));
@@ -635,10 +766,28 @@ let photos = [];           // captured photo canvases (at slot aspect)
 let photoVer = 0;
 let flow = {mode: 'instant', n: 1, preset: null, layout: null};
 let serverTextSel = null;
+let serverFrameReturnView = 'home';
 /* ---------- editable text on server frames (names, year, date...) ---------- */
 const FRAME_FONTS = {
     ...Object.fromEntries(FONTS.map(font => [font.key, (px, bold = false, italic = false) => font.css(px, bold, italic)]))
 };
+const GUEST_FRAME_FONTS = [
+    {key: 'script', label: 'Script'},
+    {key: 'serif', label: 'Elegant serif'},
+    {key: 'bold', label: 'Bold sans'},
+    {key: 'modern', label: 'Modern sans'},
+    {key: 'display', label: 'Display'},
+    {key: 'mono', label: 'Monospace'},
+    {key: 'rounded', label: 'Rounded'},
+    {key: 'arial', label: 'Arial'}
+];
+function guestFontKey(key) {
+    if (GUEST_FRAME_FONTS.some(font => font.key === key)) return key;
+    if (['georgia', 'times', 'fraunces', 'playfair', 'lora', 'merriweather'].includes(key)) return 'serif';
+    if (['impact', 'montserrat', 'bebas', 'oswald'].includes(key)) return 'display';
+    if (['courier', 'trebuchet', 'verdana', 'inter', 'dm-sans', 'poppins'].includes(key)) return key === 'courier' ? 'mono' : key === 'poppins' ? 'rounded' : 'modern';
+    return 'modern';
+}
 const textKey = t => `photobooth-frame-text-${t.id}`;
 function loadTextValues(t) {
     let saved = {};
@@ -702,9 +851,9 @@ function drawFrameTexts(ctx, L, t = flow && flow.serverTemplate, values = flow &
             ctx.save();
             ctx.translate(bx + bw / 2, by + bh / 2); ctx.rotate(rotation);
             ctx.beginPath(); ctx.rect(-bw / 2, -bh / 2, bw, bh); ctx.clip();
-            const scale = Math.min(bw / image.naturalWidth, bh / image.naturalHeight);
+            const scale = Math.min(bw / image.naturalWidth, bh / image.naturalHeight) * clamp(Number(state.logoScale) || 1, .25, 2);
             const iw = image.naturalWidth * scale, ih = image.naturalHeight * scale;
-            ctx.drawImage(image, -iw / 2, -ih / 2, iw, ih);
+            ctx.drawImage(image, -iw / 2 + bw * (Number(state.logoX) || 0), -ih / 2 + bh * (Number(state.logoY) || 0), iw, ih);
             ctx.restore();
             return;
         }
@@ -757,8 +906,205 @@ function drawFrameTexts(ctx, L, t = flow && flow.serverTemplate, values = flow &
 function refreshFrameText() {
     if (!flow || !flow.serverTemplate) return;
     if (view === 'capture') updateServerCameraWindow();
+    if (view === 'frame-personalize') drawFramePersonalizePreview();
     if (!$('v-studio').hidden) draw();
     else if (view === 'result') drawResult();
+}
+
+function drawFramePersonalizePreview() {
+    if (!flow?.serverTemplate || !activeServerFrame) return;
+    const canvas = $('framePersonalizeCanvas'), L = flow.layout;
+    if (!canvas) return;
+    canvas.width = L.W; canvas.height = L.H;
+    const ctx = canvas.getContext('2d');
+    L.slots.forEach((slot, index) => drawSlot(ctx, slot, null, 1, 0, index, true));
+    ctx.drawImage(activeServerFrame, 0, 0, L.W, L.H);
+    drawFrameTexts(ctx, L, flow.serverTemplate, flow.textValues);
+}
+
+let framePreviewZoom = 1;
+let framePreviewPan = {x: 0, y: 0};
+let framePreviewDrag = null;
+let personalizedCampaignCreated = false;
+function applyFramePreviewTransform() {
+    const canvas = $('framePersonalizeCanvas'), wrap = canvas?.parentElement;
+    if (!canvas || !wrap) return;
+    const maxX = Math.max(0, (canvas.offsetWidth * framePreviewZoom - wrap.clientWidth) / 2);
+    const maxY = Math.max(0, (canvas.offsetHeight * framePreviewZoom - wrap.clientHeight) / 2);
+    framePreviewPan.x = clamp(framePreviewPan.x, -maxX, maxX);
+    framePreviewPan.y = clamp(framePreviewPan.y, -maxY, maxY);
+    canvas.style.transform = `translate(${framePreviewPan.x}px, ${framePreviewPan.y}px) scale(${framePreviewZoom})`;
+    canvas.classList.toggle('is-zoomed', framePreviewZoom > 1);
+}
+function setFramePreviewZoom(value) {
+    framePreviewZoom = Math.round(clamp(Number(value) || 1, .5, 2) * 10) / 10;
+    if (framePreviewZoom <= 1) framePreviewPan = {x: 0, y: 0};
+    applyFramePreviewTransform();
+    const output = $('framePreviewZoomValue');
+    if (output) output.textContent = `${Math.round(framePreviewZoom * 100)}%`;
+    $('framePreviewZoomOut').disabled = framePreviewZoom <= .5;
+    $('framePreviewZoomIn').disabled = framePreviewZoom >= 2;
+}
+
+function updatePersonalizeRequirements() {
+    const template = flow?.serverTemplate;
+    let incomplete = false;
+    for (const field of template?.texts || []) {
+        const state = frameTextState(field);
+        const value = state.value;
+        const filled = field.type === 'upload'
+            ? Boolean((typeof value === 'string' && value.trim()) || field.image)
+            : Boolean(String(value ?? '').trim());
+        if (!filled) incomplete = true;
+    }
+    const topSaveButton = $('framePersonalizeSaveTop');
+    const railSaveButton = $('framePersonalizeSectionNav').querySelector('[data-personalize-section="share"]');
+    const saveButton = $('framePersonalizeSave');
+    const locked = incomplete || personalizedCampaignCreated;
+    topSaveButton.hidden = locked;
+    railSaveButton.hidden = locked;
+    saveButton.hidden = locked;
+    $('framePersonalizeRequiredNote').hidden = !incomplete || personalizedCampaignCreated;
+    return !locked;
+}
+
+function buildFramePersonalizer(t) {
+    const logoHost = $('framePersonalizeLogoFields'), textHost = $('framePersonalizeTextFields');
+    if (!logoHost || !textHost) return;
+    personalizedCampaignCreated = false;
+    $('framePersonalizeShare').hidden = true;
+    logoHost.replaceChildren(); textHost.replaceChildren();
+    $('framePersonalizeTitle').textContent = 'Personalize';
+    $('framePersonalizeName').textContent = t.name;
+    const fields = t.texts || [];
+    const brandField = fields.find(field => field.type === 'text' && /brand|business|company|organization/i.test(field.label || ''));
+    const brandText = brandField ? frameTextState(brandField) : null;
+    const brandSuggestion = String(brandText?.value || brandField?.text || '').trim();
+    const savedEdit = t.personalizedEditState;
+    $('frameCampaignBrandName').value = savedEdit?.campaignUrlName ?? (/^(brand name|your brand|brand|company name|organization name)$/i.test(brandSuggestion) ? '' : brandSuggestion);
+    const logoFields = fields.filter(field => field.type === 'upload');
+    const textFields = fields.filter(field => field.type !== 'upload');
+    if (!logoFields.length) logoHost.appendChild(el('p', 'personalize-no-fields', 'This frame has no logo fields. Its photo window stays fixed.'));
+    if (!textFields.length) textHost.appendChild(el('p', 'personalize-no-fields', 'This frame has no text fields. Its photo window stays fixed.'));
+    fields.forEach(f => {
+        const host = f.type === 'upload' ? logoHost : textHost;
+        const state = frameTextState(f), row = el('div', 'personalize-field');
+        const id = `personalize-field-${f.id}`;
+        const label = document.createElement('label'); label.htmlFor = id; label.textContent = `${f.label || (f.type === 'upload' ? 'Logo' : 'Text')} *`;
+        row.appendChild(label);
+        if (f.type === 'upload') {
+            const current = state.value || f.image || '';
+            const preview = el('img', 'personalize-logo-preview');
+            preview.alt = current ? `Preview for ${f.label}` : '';
+            preview.hidden = !current;
+            if (current) preview.src = current;
+            const picker = document.createElement('label'); picker.className = 'personalize-upload'; picker.htmlFor = id; picker.tabIndex = 0;
+            picker.setAttribute('aria-label', `Upload required: ${f.label || 'logo'}`);
+            picker.addEventListener('keydown', event => {
+                if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); input.click(); }
+            });
+            const title = el('b', '', current ? 'Change image' : 'Upload logo');
+            const detail = el('span', '', 'PNG, JPG, or WebP');
+            picker.append(title, detail);
+            const input = document.createElement('input'); input.id = id; input.type = 'file'; input.accept = 'image/png,image/jpeg,image/webp'; input.hidden = true;
+            const restore = el('button', 'link personalize-restore', f.image ? 'Restore default logo' : 'Remove logo');
+            restore.type = 'button'; restore.hidden = !state.value;
+            restore.onclick = () => {
+                state.value = ''; saveTextValues();
+                const fallback = f.image || '';
+                preview.hidden = !fallback;
+                if (fallback) preview.src = fallback; else preview.removeAttribute('src');
+                title.textContent = fallback ? 'Change image' : 'Upload logo';
+                    restore.hidden = true; drawFramePersonalizePreview(); updatePersonalizeRequirements();
+            };
+            input.addEventListener('change', async () => {
+                const file = input.files?.[0]; input.value = '';
+                if (!file) return;
+                if (file.size > 12 * 1024 * 1024) { toast('Choose a logo smaller than 12 MB'); return; }
+                try {
+                    const bitmap = await loadBitmap(file);
+                    const data = removePlainBackground(bitmap.src);
+                    const image = await new Promise((resolve, reject) => {
+                        const img = new Image(); img.onload = () => resolve(img); img.onerror = reject; img.src = data;
+                    });
+                    state.value = data;
+                    FRAME_UPLOADS.set(String(f.id), {src: data, image});
+                    saveTextValues(); preview.src = data; preview.hidden = false;
+                    title.textContent = 'Change image'; restore.hidden = false;
+                    drawFramePersonalizePreview(); updatePersonalizeRequirements();
+                } catch { toast('Could not process the logo'); }
+            });
+            const logoTools = el('div', 'personalize-tune-grid');
+            const slider = (labelText, key, min, max, step, initial, suffix = '') => {
+                const wrap = el('label', 'personalize-tune');
+                const head = el('span', '', labelText);
+                const range = document.createElement('input'); range.type = 'range'; range.min = min; range.max = max; range.step = step; range.value = Number(state[key] ?? initial);
+                const value = el('output', '', `${range.value}${suffix}`);
+                range.addEventListener('input', () => { state[key] = Number(range.value); value.textContent = `${range.value}${suffix}`; saveTextValues(); drawFramePersonalizePreview(); });
+                wrap.append(head, range, value); logoTools.appendChild(wrap);
+            };
+            slider('Logo size', 'logoScale', .5, 1.5, .05, 1, 'x');
+            slider('Horizontal position', 'logoX', -.4, .4, .02, 0);
+            slider('Vertical position', 'logoY', -.4, .4, .02, 0);
+            row.append(picker, input, preview, restore, logoTools, el('small', 'personalize-field-help', 'Remove the background, then adjust your logo inside its frame area.'));
+        } else {
+            const input = f.type === 'date' ? document.createElement('input') : document.createElement('textarea');
+            input.id = id; input.required = true; input.setAttribute('aria-required', 'true');
+            input.value = String(state.value ?? '');
+            input.placeholder = f.text || f.label || 'Enter text';
+            if (f.type === 'date') input.type = 'date';
+            else { input.rows = 2; input.maxLength = f.max || 80; }
+            input.addEventListener('input', () => { state.value = input.value; saveTextValues(); drawFramePersonalizePreview(); updatePersonalizeRequirements(); });
+            const tools = el('div', 'personalize-tune-grid');
+            const makeControl = (title, control) => { const wrap = el('label', 'personalize-tune'); wrap.append(el('span', '', title), control); tools.appendChild(wrap); return control; };
+            const font = document.createElement('select');
+            GUEST_FRAME_FONTS.forEach(option => { const item = document.createElement('option'); item.value = option.key; item.textContent = option.label; font.appendChild(item); });
+            font.value = guestFontKey(state.font || f.font || 'modern');
+            makeControl('Font', font).addEventListener('change', () => { state.font = font.value; saveTextValues(); drawFramePersonalizePreview(); });
+            const color = document.createElement('input'); color.type = 'color'; color.value = state.color || f.color || '#000000';
+            makeControl('Text colour', color).addEventListener('input', () => { state.color = color.value; saveTextValues(); drawFramePersonalizePreview(); });
+            const sizeWrap = el('label', 'personalize-tune'); sizeWrap.appendChild(el('span', '', 'Text size'));
+            const size = document.createElement('input'); size.type = 'range'; size.min = '.5'; size.max = '1.5'; size.step = '.05'; size.value = state.size || f.fontSize || 1;
+            const sizeValue = el('output', '', `${Math.round(Number(size.value) * 100)}%`);
+            size.addEventListener('input', () => { state.size = Number(size.value); sizeValue.textContent = `${Math.round(state.size * 100)}%`; saveTextValues(); drawFramePersonalizePreview(); });
+            sizeWrap.append(size, sizeValue); tools.appendChild(sizeWrap);
+            const align = document.createElement('select');
+            [['left','Left'],['center','Center'],['right','Right']].forEach(([v, label]) => { const opt=document.createElement('option'); opt.value=v; opt.textContent=label; align.appendChild(opt); });
+            align.value = state.align || f.align || 'center';
+            makeControl('Alignment', align).addEventListener('change', () => { state.align = align.value; saveTextValues(); drawFramePersonalizePreview(); });
+            const style = el('div', 'personalize-style-toggles');
+            [['bold','Bold'],['italic','Italic']].forEach(([key,label]) => {
+                const toggle = document.createElement('label'); toggle.className = 'personalize-style-toggle';
+                const check = document.createElement('input'); check.type = 'checkbox'; check.checked = Boolean(state[key] ?? f[key]);
+                check.addEventListener('change', () => { state[key] = check.checked; saveTextValues(); drawFramePersonalizePreview(); });
+                toggle.append(check, document.createTextNode(label)); style.appendChild(toggle);
+            });
+            tools.appendChild(style);
+            row.append(input, tools, el('small', 'personalize-field-help', 'Your text stays inside the area set for this frame.'));
+        }
+        host.appendChild(row);
+    });
+    $('framePersonalizeSectionNav').querySelector('[data-personalize-section="logo"]').hidden = !logoFields.length;
+    $('framePersonalizeSectionNav').querySelector('[data-personalize-section="text"]').hidden = !textFields.length;
+    showFramePersonalizeSection(logoFields.length ? 'logo' : textFields.length ? 'text' : 'share');
+    $('framePersonalizeSaveName').value = savedEdit?.templateName || `${t.name} - My Design`;
+    drawFramePersonalizePreview();
+    updatePersonalizeRequirements();
+}
+
+function showFramePersonalizeSection(key) {
+    const sectionTitles = {logo: 'Brand logo', text: 'Text & style', share: 'Save & share'};
+    $('framePersonalizeSectionTitle').textContent = sectionTitles[key] || 'Personalize';
+    document.querySelectorAll('[data-personalize-section]').forEach(button => {
+        const active = button.dataset.personalizeSection === key;
+        button.classList.toggle('is-active', active);
+        button.setAttribute('aria-current', active ? 'step' : 'false');
+    });
+    document.querySelectorAll('[data-personalize-panel]').forEach(panel => {
+        const active = panel.dataset.personalizePanel === key;
+        panel.hidden = !active;
+        panel.classList.toggle('is-active', active);
+    });
 }
 
 function buildStudioFrameFields(t) {
@@ -936,26 +1282,33 @@ function photosFor(filter) {
 let view = 'home';
 function show(v) {
     view = v;
+    document.querySelector('main').classList.toggle('landing-main', v === 'home' || v === 'faq' || v === 'frames');
     document.body.classList.toggle('choose-view', v === 'choose');
     document.body.classList.toggle('capture-view', v === 'capture');
     document.body.classList.toggle('result-view', v === 'result');
-    ['home', 'faq', 'frames', 'choose', 'capture', 'result', 'studio'].forEach(n => $('v-' + n).classList.toggle('on', n === v));
+    document.body.classList.toggle('personalize-view', v === 'frame-personalize');
+    ['home', 'faq', 'frames', 'saved-templates', 'frame-personalize', 'choose', 'capture', 'result', 'studio'].forEach(n => $('v-' + n).classList.toggle('on', n === v));
     $('steps').hidden = campaignConfig || v === 'home' || v === 'faq' || v === 'frames' || v === 'studio';
     const landingView = v === 'home' || v === 'faq' || v === 'frames';
     $('siteNav').hidden = campaignConfig || !landingView;
     $('navToggle').hidden = campaignConfig || !landingView;
-    $('tryFreeBtn').hidden = campaignConfig || !landingView;
+    $('savedTemplatesBtn').hidden = campaignConfig || !landingView;
     setNavMenuOpen(false);
-    const step = v === 'choose' ? 1 : v === 'capture' ? 2 : 3;
+    const step = v === 'choose' || v === 'frame-personalize' ? 1 : v === 'capture' ? 2 : 3;
+    const firstStepLabel = document.querySelector('#steps li[data-s="1"]');
+    if (firstStepLabel?.lastChild) firstStepLabel.lastChild.textContent = v === 'frame-personalize' ? 'Personalize' : 'Choose';
     document.querySelectorAll('#steps li').forEach(li => li.classList.toggle('on', +li.dataset.s === step));
     if (v === 'capture') startCam(); else stopCam();
     window.scrollTo(0, 0);
+    requestAnimationFrame(updateSiteNavActive);
 }
 
 /* ---------- home ---------- */
 function buildHome() {
-    const a = $('artInstant');
-    [1, 2, 3, 4].forEach(n => a.appendChild(previewCanvas(layoutFor('instant', n), {}, 320, n)));
+    const instantArt = $('artInstant');
+    [1, 2, 3, 4].forEach(n => {
+        instantArt.appendChild(previewCanvas(layoutFor('instant', n), {}, 320, n));
+    });
     const b = $('artStrip');
     ['classic', 'blush', 'midnight'].forEach((id, i) => {
         const p = STRIPS.find(s => s.id === id);
@@ -966,6 +1319,8 @@ function buildHome() {
 }
 
 let serverFrameTemplates = [];
+let communityFrameTemplates = [];
+let linkedFrameOpened = false;
 const SERVER_FRAME_PREVIEW_COUNT = 8;
 
 function renderServerFrameCard(t) {
@@ -1021,11 +1376,67 @@ async function loadServerFrames() {
         const response = await fetch('/api/templates/');
         if (!response.ok) throw new Error();
         const data = await response.json();
-        serverFrameTemplates = (data.categories || []).flatMap(category => category.templates || []);
+        const allFrames = (data.categories || []).flatMap(category => category.templates || []);
+        communityFrameTemplates = allFrames.filter(frame => frame.community);
+        serverFrameTemplates = allFrames.filter(frame => !frame.community);
+        await backfillSavedFrameShares();
         renderServerFrames();
+        renderSavedTemplates();
+        window.refreshLiveBoothFrames?.();
         section.hidden = serverFrameTemplates.length === 0;
+        if (serverFrameTemplates.length) initPrinterAnimation(serverFrameTemplates);
+        const linkedId = Number(new URLSearchParams(location.search).get('frame'));
+        const resumeId = Number(new URLSearchParams(location.search).get('resume_frame'));
+        if (!linkedFrameOpened && googleAuthConfig.authenticated && Number.isInteger(resumeId) && resumeId > 0) {
+            const resumedFrame = [...serverFrameTemplates, ...communityFrameTemplates].find(frame => Number(frame.id) === resumeId);
+            if (resumedFrame) {
+                linkedFrameOpened = true;
+                history.replaceState(null, '', location.pathname);
+                startServerFrame(resumedFrame);
+                return;
+            }
+        }
+        if (!linkedFrameOpened && !campaignConfig && Number.isInteger(linkedId) && linkedId > 0) {
+            const linkedFrame = [...serverFrameTemplates, ...communityFrameTemplates].find(frame => Number(frame.id) === linkedId);
+            if (linkedFrame) {
+                linkedFrameOpened = true;
+                startServerFrame(linkedFrame);
+            }
+        }
     } catch (err) {
         section.hidden = true;
+    }
+}
+
+async function backfillSavedFrameShares() {
+    const saved = readSavedTemplates();
+    let changed = false;
+    for (const item of saved) {
+        if (item.mode !== 'server' || item.campaignId) continue;
+        const shared = communityFrameTemplates.find(frame =>
+            (Number(frame.id) === Number(item.sharedFrameId) || frame.name === item.name));
+        if (!shared) continue;
+        const data = new FormData();
+        data.append('brand_name', item.name.replace(/\s+-\s+My Design$/i, '').trim() || item.name);
+        try {
+            const response = await fetch(`/api/shared-frames/${shared.id}/campaign/`, {
+                method: 'POST', body: data,
+                headers: {'X-CSRFToken': document.querySelector('meta[name="csrf"]').content}
+            });
+            const result = await response.json();
+            if (!response.ok || !result.ok) continue;
+            item.sharedFrameId = shared.id;
+            item.campaignId = result.campaignId;
+            item.shareUrl = result.shareUrl;
+            item.qrUrl = result.qrUrl;
+            item.qrPoster = '';
+            changed = true;
+        } catch { /* Keep the local template usable; campaign links can be retried next visit. */ }
+    }
+    if (changed) {
+        try { localStorage.setItem(SAVED_TEMPLATES_KEY, JSON.stringify(saved)); }
+        catch { /* Existing local template data remains usable if storage is full. */ }
+        renderSavedTemplates();
     }
 }
 
@@ -1043,13 +1454,16 @@ $('backToFrames').addEventListener('click', () => {
     show('home');
     requestAnimationFrame(() => $('serverFrameSection').scrollIntoView({behavior: 'smooth', block: 'start'}));
 });
-$('tryFreeBtn').addEventListener('click', e => {
+$('savedTemplatesBtn').addEventListener('click', e => {
     e.preventDefault();
-    renderAllServerFrames();
-    show('frames');
+    renderSavedTemplates();
+    show('saved-templates');
 });
+$('backFromSavedTemplates').addEventListener('click', () => show('home'));
 
-async function startServerFrame(t) {
+async function startServerFrame(t, options = {}) {
+    serverFrameReturnView = view === 'frames' ? 'frames' : 'home';
+    const hasStudioFields = Array.isArray(t.texts) && t.texts.length > 0;
     try {
         clearCameraVideoMask();
         const image = await new Promise((resolve, reject) => {
@@ -1082,7 +1496,12 @@ async function startServerFrame(t) {
         frameCtx.globalCompositeOperation = 'source-over';
         flow = {mode: 'server', n: layout.n, preset: {}, layout, name: t.name,
             savedDesign: newDoc(layout, {filter: t.filter || 'Normal'}), serverTemplate: t};
-        flow.textValues = loadTextValues(t);
+        flow.textValues = options.live ? Object.fromEntries((t.texts || []).map(field => [field.id, {
+            value: field.type === 'upload' ? '' : field.type === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(field.text || '') ? '' : field.text || '',
+            x: field.x, y: field.y, w: field.w, h: field.h, font: field.font, color: field.color,
+            align: field.align, size: field.fontSize || 1, bold: !!field.bold, italic: !!field.italic,
+            effect: field.effect || 'none', rotation: 0, hidden: false,
+        }])) : loadTextValues(t);
         photos = []; photoVer++;
         const cam = $('cam'), overlay = $('camFrame'), first = layout.slots[0];
         cam.classList.toggle('transparent-window', layout.n === 1 && activeServerTransparentSlots[0]);
@@ -1101,13 +1520,22 @@ async function startServerFrame(t) {
             cam.classList.remove('templated', 'overlay-design');
             ['--slot-x', '--slot-y', '--slot-w', '--slot-h', '--slot-clip'].forEach(p => cam.style.removeProperty(p));
             overlay.hidden = true;
-            cam.style.setProperty('--ar', `${first.w}/${first.h}`);
-            cam.style.setProperty('--arn', (first.w / first.h).toFixed(4));
-            $('v-capture').style.setProperty('--capture-ar', (first.w / first.h).toFixed(4));
+            // A live-room participant should see a normal full camera preview;
+            // only the saved photo is cropped to their assigned frame window.
+            const previewAspect = options.live ? 16 / 9 : first.w / first.h;
+            cam.style.setProperty('--ar', options.live ? '16/9' : `${first.w}/${first.h}`);
+            cam.style.setProperty('--arn', previewAspect.toFixed(4));
+            $('v-capture').style.setProperty('--capture-ar', previewAspect.toFixed(4));
         }
         $('capName').textContent = t.name; $('sSave').hidden = true;
         if (campaignConfig) $('capBack').hidden = true;
-        buildSlots(); show('capture');
+        if (campaignConfig || t.customArtwork || t.personalizedSaved || options.live || !hasStudioFields) {
+            buildSlots(); show('capture');
+        } else {
+            buildFramePersonalizer(t);
+            show('frame-personalize');
+        }
+        return true;
     } catch (err) {
         activeServerFrame = null;
         activeServerTransparentSlots = [];
@@ -1119,18 +1547,18 @@ async function startServerFrame(t) {
         } else {
             toast('Could not load that frame');
         }
+        return false;
     }
 }
 
 function readSavedTemplates() {
     try {
         const entries = JSON.parse(localStorage.getItem(SAVED_TEMPLATES_KEY) || '[]');
-        return Array.isArray(entries) ? entries.filter(t =>
-            t && (t.mode === 'instant' || t.mode === 'strip') &&
-            Number.isInteger(t.n) && t.n >= 1 && t.n <= 4 &&
-            typeof t.name === 'string' && typeof t.key === 'string' &&
-            (t.mode === 'instant' || STRIPS.some(s => s.id === t.presetId))
-        ).slice(0, 12) : [];
+        return Array.isArray(entries) ? entries.filter(t => {
+            if (!t || typeof t.name !== 'string' || typeof t.key !== 'string') return false;
+            if (t.mode === 'server') return typeof t.image === 'string' && t.image.startsWith('data:image/') && Number.isFinite(t.width) && Number.isFinite(t.height) && Array.isArray(t.slots) && t.slots.length > 0;
+            return (t.mode === 'instant' || t.mode === 'strip') && Number.isInteger(t.n) && t.n >= 0 && t.n <= 4 && (t.mode === 'instant' || STRIPS.some(s => s.id === t.presetId));
+        }).slice(0, 12) : [];
     } catch { return []; }
 }
 
@@ -1160,8 +1588,22 @@ function ensureSavedTemplateImage(design) {
     return task;
 }
 
+const SAVED_SERVER_IMAGES = new Map();
 function paintSavedTemplate(canvas, t, targetW) {
-    const layout = layoutFor(t.mode, t.n), scale = targetW / layout.W;
+    if (t.mode === 'server') {
+        const scale = targetW / t.width;
+        canvas.width = Math.round(t.width * scale); canvas.height = Math.round(t.height * scale);
+        const ctx = canvas.getContext('2d');
+        t.slots.forEach((s, i) => drawSlot(ctx, {x:s.x*t.width,y:s.y*t.height,w:s.w*t.width,h:s.h*t.height,shape:s.shape}, null, scale, 8*scale, i, true));
+        let image = SAVED_SERVER_IMAGES.get(t.key);
+        if (!image) { image = new Image(); SAVED_SERVER_IMAGES.set(t.key, image); image.onload = () => renderSavedTemplates(); image.src = t.image; }
+        if (image.complete && image.naturalWidth) ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+        return;
+    }
+    const storedLayout = t.design && t.design.layout;
+    const layout = storedLayout && storedLayout.slots && storedLayout.slots.length === t.n
+        ? storedLayout : layoutFor(t.mode, t.n);
+    const scale = targetW / layout.W;
     canvas.width = Math.round(layout.W * scale);
     canvas.height = Math.round(layout.H * scale);
     const d = t.design ? JSON.parse(JSON.stringify(t.design)) : newDoc(layout, t.mode === 'strip' ? STRIPS.find(s => s.id === t.presetId) || {} : {});
@@ -1171,11 +1613,17 @@ function paintSavedTemplate(canvas, t, targetW) {
 
 function startUsingSavedTemplate(t, button = $('templateDialogUse')) {
     button.disabled = true;
+    if (t.mode === 'server') {
+        const frame = {...t, w: t.width, h: t.height, personalizedSaved: true, texts: []};
+        startServerFrame(frame).finally(() => { if ($('templateDialog').open) $('templateDialog').close(); button.disabled = false; });
+        return;
+    }
     ensureSavedTemplateImage(t.design).then(() => {
         const preset = t.mode === 'strip' ? STRIPS.find(s => s.id === t.presetId) : {};
         const design = t.design ? JSON.parse(JSON.stringify(t.design)) : null;
         if (design && design.bg) delete design.bg.imgData;
-        startCapture(t.mode, t.n, preset || {}, t.name, design);
+        const captureCount = t.n || (t.mode === 'strip' ? preset?.n || 3 : 1);
+        startCapture(t.mode, captureCount, preset || {}, t.name, design);
         if ($('templateDialog').open) $('templateDialog').close();
     }).catch(() => toast('Could not load the saved template')).finally(() => { button.disabled = false; });
 }
@@ -1198,6 +1646,30 @@ function editSavedTemplate(t, button) {
         if ($('templateDialog').open) $('templateDialog').close();
         openStudio();
     }).catch(() => toast('Could not open the saved template for editing')).finally(() => { button.disabled = false; });
+}
+
+function findSavedFrameSource(t) {
+    const sourceId = Number(t.sourceFrameId);
+    if (sourceId) {
+        const byId = serverFrameTemplates.find(frame => Number(frame.id) === sourceId);
+        if (byId) return byId;
+    }
+    const originalName = t.name.replace(/\s+-\s+My Design$/i, '').trim();
+    return serverFrameTemplates.find(frame => frame.name.toLowerCase() === originalName.toLowerCase()) || null;
+}
+
+async function editSavedPersonalizedTemplate(t, button) {
+    const source = findSavedFrameSource(t);
+    if (!source) { toast('The original frame is no longer available to edit'); return; }
+    button.disabled = true;
+    editingPersonalizedTemplateKey = t.key;
+    try {
+        await startServerFrame({...source, personalizedEditState: {
+            templateName: t.name,
+            campaignUrlName: t.campaignUrlName || '',
+        }});
+        if (view !== 'frame-personalize') editingPersonalizedTemplateKey = null;
+    } finally { button.disabled = false; }
 }
 
 function requestDeleteSavedTemplate(t) {
@@ -1226,6 +1698,7 @@ async function openSavedTemplatePreview(t) {
     catch { toast('Could not load the saved template preview'); }
     $('templateDialogTitle').textContent = t.name;
     paintSavedTemplate(canvas, t, 440);
+    $('templateDialogUse').textContent = 'Use template';
     $('templateDialogUse').onclick = () => startUsingSavedTemplate(t);
     $('templateDialogRemove').onclick = () => {
         requestDeleteSavedTemplate(t);
@@ -1237,7 +1710,8 @@ function renderSavedTemplates() {
     const list = $('savedTemplates'), section = $('savedSection');
     if (!list || !section) return;
     const saved = readSavedTemplates();
-    section.hidden = saved.length === 0;
+    const scrollLeft = list.scrollLeft;
+    $('savedTemplatesEmpty').hidden = saved.length > 0;
     list.innerHTML = '';
     saved.forEach((t, i) => {
         const card = el('article', 'choice saved-item');
@@ -1252,7 +1726,9 @@ function renderSavedTemplates() {
         }
         const title = el('b'), detail = el('small');
         title.textContent = t.name;
-        detail.textContent = `${t.mode === 'strip' ? 'Photo strip' : 'Instant frame'} \u00B7 ${t.n} photos`;
+        detail.textContent = t.mode === 'server' ? 'Personalized frame · ready to use' : t.n
+            ? `${t.mode === 'strip' ? 'Photo strip' : 'Instant frame'} \u00B7 ${t.n} photos`
+            : 'Artwork only \u00B7 camera window added when used';
         preview.append(thumb, title, detail);
         preview.onclick = () => openSavedTemplatePreview(t);
         preview.setAttribute('aria-label', `Preview ${t.name} template`);
@@ -1266,20 +1742,84 @@ function renderSavedTemplates() {
         const start = el('button', 'saved-start', 'Use template');
         start.type = 'button';
         start.onclick = () => startUsingSavedTemplate(t, start);
+        actions.appendChild(start);
+        if (t.shareUrl) {
+            const shareActions = el('div', 'saved-share-actions');
+            const openLink = el('a', 'saved-share-button saved-open-link', 'Open link');
+            openLink.href = t.shareUrl; openLink.target = '_blank'; openLink.rel = 'noopener';
+            const copy = el('button', 'saved-share-button', 'Copy link');
+            copy.type = 'button';
+            copy.onclick = async () => {
+                try { await navigator.clipboard.writeText(t.shareUrl); toast('Frame link copied'); }
+                catch {
+                    const field = document.createElement('textarea');
+                    field.value = t.shareUrl; field.style.position = 'fixed'; field.style.opacity = '0';
+                    document.body.appendChild(field); field.select();
+                    try { document.execCommand('copy'); toast('Frame link copied'); }
+                    catch { toast('Could not copy the frame link'); }
+                    field.remove();
+                }
+            };
+            const download = el('a', 'saved-share-button saved-share-download', 'Download QR');
+            download.href = t.qrPoster || `/api/shared-frames/${t.sharedFrameId}/qr.png?download=1`;
+            download.download = t.qrFilename || `${t.name}-qr.png`;
+            download.setAttribute('aria-label', `Download QR code for ${t.name}`);
+            shareActions.append(openLink, copy, download);
+            actions.appendChild(shareActions);
+        }
         const edit = el('button', 'saved-edit', 'Edit');
         edit.type = 'button';
         edit.setAttribute('aria-label', `Edit ${t.name} template`);
-        edit.onclick = () => editSavedTemplate(t, edit);
-        actions.append(start, edit, remove);
+        const canEditPersonalized = t.mode === 'server' && Boolean(findSavedFrameSource(t));
+        edit.hidden = t.mode === 'server' && !canEditPersonalized;
+        edit.onclick = () => t.mode === 'server'
+            ? editSavedPersonalizedTemplate(t, edit)
+            : editSavedTemplate(t, edit);
+        actions.append(edit, remove);
         card.append(preview, actions);
         list.appendChild(card);
     });
+    list.scrollLeft = scrollLeft;
+    requestAnimationFrame(updateSavedTemplateScroller);
 }
 
-async function saveCurrentTemplate() {
+function updateSavedTemplateScroller() {
+    const list = $('savedTemplates');
+    const previous = $('savedPrev');
+    const next = $('savedNext');
+    const count = $('savedTemplateCount');
+    if (!list || !previous || !next || !count) return;
+    const cards = [...list.querySelectorAll('.saved-item')];
+    const maxScroll = list.scrollWidth - list.clientWidth;
+    previous.disabled = list.scrollLeft <= 2;
+    next.disabled = maxScroll <= 2 || list.scrollLeft >= maxScroll - 2;
+    if (!cards.length) {
+        count.textContent = '';
+        return;
+    }
+    const viewport = list.getBoundingClientRect();
+    const visible = cards
+        .map((card, index) => ({index, rect: card.getBoundingClientRect()}))
+        .filter(({rect}) => rect.right > viewport.left && rect.left < viewport.right);
+    count.textContent = visible.length
+        ? `${visible[0].index + 1}-${visible[visible.length - 1].index + 1} of ${cards.length}`
+        : `0 of ${cards.length}`;
+}
+
+$('savedPrev').addEventListener('click', () => {
+    $('savedTemplates').scrollBy({left: -$('savedTemplates').clientWidth * .8, behavior: 'smooth'});
+});
+$('savedNext').addEventListener('click', () => {
+    $('savedTemplates').scrollBy({left: $('savedTemplates').clientWidth * .8, behavior: 'smooth'});
+});
+$('savedTemplates').addEventListener('scroll', updateSavedTemplateScroller, {passive: true});
+window.addEventListener('resize', updateSavedTemplateScroller);
+
+async function saveCurrentTemplate(nameOverride = '') {
     const presetId = flow.mode === 'strip' ? flow.preset.id : null;
     const saved = readSavedTemplates();
-    const base = `${flow.name || 'Photo'} template`;
+    const requestedName = typeof nameOverride === 'string' ? nameOverride.trim() : '';
+    const base = requestedName || `${flow.name || 'Photo'} template`;
     const editing = editingSavedTemplateKey && saved.some(t => t.key === editingSavedTemplateKey);
     let name = editing ? saved.find(t => t.key === editingSavedTemplateKey).name : base;
     let suffix = 2;
@@ -1289,10 +1829,13 @@ async function saveCurrentTemplate() {
     if (design.bg.mode === 'image') {
         const sourceRecord = IMGS[design.bg.imgId], source = sourceRecord && sourceRecord.img;
         if (!source) { toast('Could not save the background image'); return; }
-        const maxSide = 1400, ratio = Math.min(1, maxSide / Math.max(source.width, source.height));
+        const maxSide = 1100, ratio = Math.min(1, maxSide / Math.max(source.width, source.height));
         const bitmap = mk(source.width * ratio, source.height * ratio);
         bitmap.getContext('2d').drawImage(source, 0, 0, bitmap.width, bitmap.height);
-        try { design.bg.imgData = bitmap.toDataURL('image/png'); }
+        try {
+            design.bg.imgData = bitmap.toDataURL('image/webp', .82);
+            if (!design.bg.imgData.startsWith('data:image/webp')) design.bg.imgData = bitmap.toDataURL('image/png');
+        }
         catch { toast('Could not save the background image'); return; }
         design.bg.imgId = `saved-template-${key}`;
         IMGS[design.bg.imgId] = {img: bitmap, lum: sourceRecord.lum};
@@ -1301,10 +1844,176 @@ async function saveCurrentTemplate() {
     if (editing) saved[saved.findIndex(t => t.key === key)] = updated;
     else saved.unshift(updated);
     try {
-        localStorage.setItem(SAVED_TEMPLATES_KEY, JSON.stringify(saved.slice(0, 12)));
+        const entries = saved.slice(0, 12);
+        let stored = false;
+        while (entries.length && !stored) {
+            try {
+                localStorage.setItem(SAVED_TEMPLATES_KEY, JSON.stringify(entries));
+                stored = true;
+            } catch {
+                entries.pop();
+            }
+        }
+        if (!stored) throw new Error('storage quota');
+        $('savedTemplates').scrollLeft = 0;
         renderSavedTemplates();
         toast(editing ? 'Template changes saved on this device' : 'Template saved on this device');
     } catch { toast('Could not save the template on this device'); }
+}
+
+async function savePersonalizedFrame() {
+    if (personalizedCampaignCreated) return;
+    if (!flow?.serverTemplate || !activeServerFrame) return;
+    if (!updatePersonalizeRequirements()) { toast('Complete all required fields before creating your campaign'); return; }
+    if (!googleAuthConfig.authenticated && !campaignConfig) {
+        withAccount(() => savePersonalizedFrame());
+        return;
+    }
+    const template = flow.serverTemplate;
+    const name = $('framePersonalizeSaveName').value.trim() || `${template.name} - My Design`;
+    const campaignUrlName = $('frameCampaignBrandName').value.trim();
+    const createButton = $('framePersonalizeSave');
+    const topSaveButton = $('framePersonalizeSaveTop');
+    if (createButton.disabled) return;
+    const createButtonMarkup = createButton.innerHTML;
+    const topSaveButtonMarkup = topSaveButton.innerHTML;
+    let campaignLinkCreated = false;
+    createButton.disabled = true;
+    createButton.textContent = 'Creating campaign link & QR…';
+    topSaveButton.disabled = true;
+    topSaveButton.textContent = 'Saving…';
+    try {
+        const pending = (template.texts || []).filter(field => field.type === 'upload').map(field => {
+            const state = frameTextState(field), src = state.value || field.image;
+            if (!src) return Promise.resolve();
+            const image = loadFrameUpload(field.id, src);
+            return image?.complete && image.naturalWidth ? Promise.resolve() : new Promise((resolve, reject) => {
+                image.onload = resolve; image.onerror = reject;
+            });
+        });
+        await Promise.all(pending);
+        const overlay = mk(activeServerFrame.width, activeServerFrame.height), ctx = overlay.getContext('2d');
+        ctx.drawImage(activeServerFrame, 0, 0);
+        drawFrameTexts(ctx, flow.layout, template, flow.textValues);
+        let image;
+        try { image = overlay.toDataURL('image/webp', .9); if (!image.startsWith('data:image/webp')) image = overlay.toDataURL('image/png'); }
+        catch { toast('Could not prepare this frame for saving'); return; }
+        const key = editingPersonalizedTemplateKey || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const saved = readSavedTemplates().filter(item => item.key !== key);
+        const entry = {
+            key, mode: 'server', n: flow.layout.slots.length, name, image,
+            sourceFrameId: template.id, campaignUrlName,
+            width: flow.layout.W, height: flow.layout.H,
+            slots: flow.layout.slots.map(slot => ({x:slot.x/flow.layout.W,y:slot.y/flow.layout.H,w:slot.w/flow.layout.W,h:slot.h/flow.layout.H,shape:slot.shape||'square'}))
+        };
+        const [dataHeader, dataPayload] = image.split(',');
+        const mime = dataHeader.match(/^data:(.*?);base64$/)?.[1] || 'image/png';
+        const bytes = Uint8Array.from(atob(dataPayload), char => char.charCodeAt(0));
+        const upload = new FormData();
+        upload.append('name', name);
+        upload.append('image', new Blob([bytes], {type: mime}), `personalized-frame.${mime === 'image/webp' ? 'webp' : 'png'}`);
+        const templateLogoField = (template.texts || []).find(field => field.type === 'upload');
+        const templateLogoState = templateLogoField && frameTextState(templateLogoField);
+        const logoSrc = templateLogoState?.value || templateLogoField?.image || '';
+        const brandNameField = (template.texts || []).find(field => field.type === 'text' && /brand|business|company|organization/i.test(field.label || ''));
+        const brandNameState = brandNameField && frameTextState(brandNameField);
+        let campaignName = String(brandNameState?.value || brandNameField?.text || '').trim();
+        if (!campaignName || /^(brand name|your brand|brand|company name|organization name)$/i.test(campaignName)) {
+            campaignName = name.replace(/\s+-\s+My Design$/i, '').trim() || name;
+        }
+        upload.append('campaign_name', campaignName);
+        upload.append('campaign_slug_name', campaignUrlName || campaignName || name);
+        if (logoSrc) {
+            try {
+                const logoResponse = await fetch(logoSrc);
+                if (logoResponse.ok) {
+                    const logoBlob = await logoResponse.blob();
+                    if (logoBlob.size && logoBlob.size <= 12 * 1024 * 1024) {
+                        upload.append('campaign_logo', logoBlob, `brand-logo.${logoBlob.type === 'image/jpeg' ? 'jpg' : logoBlob.type === 'image/webp' ? 'webp' : 'png'}`);
+                    }
+                }
+            } catch { /* The campaign receives a generated brand mark if no logo can be read. */ }
+        }
+        upload.append('slots', JSON.stringify(flow.layout.slots.map(slot => ({
+            x: slot.x / flow.layout.W * 100, y: slot.y / flow.layout.H * 100,
+            w: slot.w / flow.layout.W * 100, h: slot.h / flow.layout.H * 100,
+            shape: slot.shape || 'square'
+        }))));
+        const response = await fetch('/api/shared-frames/', {
+            method: 'POST', body: upload,
+            headers: {'X-CSRFToken': document.querySelector('meta[name="csrf"]').content}
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) { toast(result.error || 'Could not share this frame'); return; }
+        $('framePersonalizeShareTitle').textContent = `${result.name} is ready to share`;
+        $('framePersonalizeShareUrlText').textContent = result.shareUrl;
+        $('framePersonalizeOpenLink').href = result.shareUrl;
+        const logo = $('framePersonalizeBrandLogo');
+        logo.hidden = !logoSrc;
+        $('framePersonalizeBrandName').textContent = logoSrc ? '' : (result.campaignName || campaignName);
+        if (logoSrc) logo.src = logoSrc;
+        const qr = $('framePersonalizeShareQr');
+        await new Promise((resolve, reject) => {
+            qr.onload = resolve; qr.onerror = reject;
+            qr.src = `${result.qrUrl}?v=${Date.now()}`;
+        });
+        const qrPoster = await makeShareQrPoster(qr, logoSrc, result.campaignName || campaignName);
+        const qrFilename = `${result.name.replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '') || 'shared-frame'}-qr.png`;
+        $('framePersonalizeQrDownloadText').href = qrPoster;
+        $('framePersonalizeQrDownloadText').download = qrFilename;
+        Object.assign(entry, {sharedFrameId: result.id, campaignId: result.campaignId,
+            shareUrl: result.shareUrl, qrUrl: result.qrUrl, qrPoster, qrFilename});
+        personalizedCampaignCreated = true;
+        $('frameCampaignBrandName').disabled = true;
+        $('framePersonalizeSaveName').disabled = true;
+        document.querySelectorAll('#framePersonalizeLogoFields input, #framePersonalizeLogoFields button, #framePersonalizeTextFields input, #framePersonalizeTextFields textarea, #framePersonalizeTextFields select').forEach(control => { control.disabled = true; });
+        $('framePersonalizeShare').hidden = false;
+        campaignLinkCreated = true;
+        createButton.hidden = true;
+        topSaveButton.hidden = true;
+        $('framePersonalizeSectionNav').querySelector('[data-personalize-section="share"]').hidden = true;
+        showFramePersonalizeSection('share');
+        await loadServerFrames();
+        saved.unshift(entry);
+        let stored = false;
+        const entries = saved.slice(0, 12);
+        while (entries.length && !stored) {
+            try { localStorage.setItem(SAVED_TEMPLATES_KEY, JSON.stringify(entries)); stored = true; }
+            catch { if (entries.length === 1) break; entries.pop(); }
+        }
+        if (stored) { $('savedTemplates').scrollLeft = 0; renderSavedTemplates(); }
+        editingPersonalizedTemplateKey = null;
+        toast(stored ? 'Campaign created and frame saved on this device' : 'Campaign created for this frame');
+        $('framePersonalizeShare').scrollIntoView({behavior: 'smooth', block: 'nearest'});
+    } catch { toast('Could not share this frame. Check your connection and try again.'); }
+    finally {
+        if (!campaignLinkCreated) {
+            createButton.innerHTML = createButtonMarkup;
+            createButton.disabled = false;
+            topSaveButton.innerHTML = topSaveButtonMarkup;
+            topSaveButton.disabled = false;
+        }
+    }
+}
+
+async function makeShareQrPoster(qrImage, logoSrc, fallbackName) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 800; canvas.height = 1000;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (logoSrc) {
+        const logo = await new Promise((resolve, reject) => {
+            const image = new Image(); image.onload = () => resolve(image); image.onerror = reject; image.src = logoSrc;
+        });
+        const scale = Math.min(430 / logo.naturalWidth, 150 / logo.naturalHeight);
+        const width = logo.naturalWidth * scale, height = logo.naturalHeight * scale;
+        ctx.drawImage(logo, (canvas.width - width) / 2, 72 + (150 - height) / 2, width, height);
+    } else {
+        ctx.fillStyle = '#171512'; ctx.textAlign = 'center'; ctx.font = '600 42px Georgia, serif';
+        ctx.fillText(fallbackName, canvas.width / 2, 150, 680);
+    }
+    ctx.drawImage(qrImage, 90, 280, 620, 620);
+    return canvas.toDataURL('image/png');
 }
 
 function adminFrameBlob() {
@@ -1348,7 +2057,9 @@ async function saveAdminStudioFrame() {
         if (window.opener && result.frameId) {
             window.opener.postMessage({type: 'campaign-frame-created', id: result.frameId, name: result.frameName}, window.location.origin);
         }
-        window.location.assign(result.url || adminStudioConfig.returnUrl);
+        await saveCurrentTemplate(name);
+        window.location.assign(!adminStudioConfig.campaignId
+            ? '/' : (result.url || adminStudioConfig.returnUrl));
     } catch (err) {
         error.textContent = err.message || 'Could not save this frame.';
         error.hidden = false;
@@ -1358,6 +2069,12 @@ async function saveAdminStudioFrame() {
 }
 $('optInstant').onclick = () => openChoose('instant');
 $('optStrip').onclick = () => openChoose('strip');
+$('heroStartBtn').onclick = () => openBlankStudio();
+$('heroBrowseFrames').addEventListener('click', e => {
+    e.preventDefault();
+    renderAllServerFrames();
+    show('frames');
+});
 function openBlankStudio() {
     editingSavedTemplateKey = null;
     activeServerFrame = null;
@@ -1383,6 +2100,47 @@ function setNavMenuOpen(open) {
     $('navToggle').setAttribute('aria-expanded', String(open));
     $('navToggle').setAttribute('aria-label', open ? 'Close navigation menu' : 'Open navigation menu');
 }
+function setActiveSiteNav(name) {
+    const targets = {home: '#v-home', how: '#how-it-works', faq: '#faq', contact: '#contact'};
+    $('siteNav').querySelectorAll('a').forEach(link => {
+        const active = !!name && link.getAttribute('href') === targets[name];
+        link.classList.toggle('is-active', active);
+        if (active) link.setAttribute('aria-current', 'location');
+        else link.removeAttribute('aria-current');
+    });
+}
+function updateSiteNavActive() {
+    if (view === 'faq') {
+        setActiveSiteNav('faq');
+        return;
+    }
+    if (view === 'frames') {
+        setActiveSiteNav('home');
+        return;
+    }
+    if (view !== 'home') {
+        setActiveSiteNav('');
+        return;
+    }
+    if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2) {
+        setActiveSiteNav('contact');
+        return;
+    }
+    const threshold = window.scrollY + document.querySelector('.top').offsetHeight + 32;
+    const hasPassed = id => $(id).getBoundingClientRect().top + window.scrollY <= threshold;
+    setActiveSiteNav(hasPassed('contact') ? 'contact' : hasPassed('how-it-works') ? 'how' : 'home');
+}
+let navUpdateScheduled = false;
+function scheduleSiteNavUpdate() {
+    if (navUpdateScheduled) return;
+    navUpdateScheduled = true;
+    requestAnimationFrame(() => {
+        navUpdateScheduled = false;
+        updateSiteNavActive();
+    });
+}
+window.addEventListener('scroll', scheduleSiteNavUpdate, {passive: true});
+window.addEventListener('resize', scheduleSiteNavUpdate);
 $('navToggle').addEventListener('click', () => {
     setNavMenuOpen($('navToggle').getAttribute('aria-expanded') !== 'true');
 });
@@ -1393,6 +2151,7 @@ $('siteNav').addEventListener('click', e => {
     const target = link.getAttribute('href').slice(1);
     setNavMenuOpen(false);
     if (target === 'studio') {
+        setActiveSiteNav('');
         openBlankStudio();
         return;
     }
@@ -1417,6 +2176,22 @@ document.addEventListener('click', e => {
 document.addEventListener('keydown', e => {
     if (e.key === 'Escape') setNavMenuOpen(false);
 });
+const campaignTypeButtons = [...document.querySelectorAll('.contact-tags [data-interest]')];
+const contactInterest = $('contactForm').elements.interest;
+const syncCampaignTypeButtons = () => campaignTypeButtons.forEach(button => {
+    const selected = contactInterest.value === button.dataset.interest;
+    button.classList.toggle('is-selected', selected);
+    button.setAttribute('aria-pressed', String(selected));
+});
+document.querySelector('.contact-tags').addEventListener('click', event => {
+    const button = event.target.closest('[data-interest]');
+    if (!button) return;
+    contactInterest.value = button.dataset.interest;
+    contactInterest.dispatchEvent(new Event('change', {bubbles: true}));
+    syncCampaignTypeButtons();
+});
+contactInterest.addEventListener('change', syncCampaignTypeButtons);
+syncCampaignTypeButtons();
 $('contactForm').addEventListener('submit', async e => {
     e.preventDefault();
     const form = e.currentTarget;
@@ -1450,15 +2225,25 @@ document.querySelectorAll('[data-back]').forEach(b => b.onclick = () => show(b.d
 
 /* ---------- choose ---------- */
 let stripPhotoCount = 3;
+function stripPresetsForCount(count) {
+    return STRIPS
+        .filter(preset => !preset.customArtwork || preset.n === count)
+        .map((preset, order) => ({preset, order}))
+        .sort((a, b) => Number(Boolean(b.preset.customArtwork)) - Number(Boolean(a.preset.customArtwork)) || a.order - b.order)
+        .map(item => item.preset);
+}
 function renderStripChoices() {
     const host = $('choices');
     host.innerHTML = '';
-    STRIPS.forEach((preset, i) => {
+    stripPresetsForCount(stripPhotoCount).forEach((preset, i) => {
         const button = el('button', 'choice');
         const thumb = el('div', 'thumb');
-        thumb.appendChild(previewCanvas(layoutFor('strip', stripPhotoCount), preset, 400, i));
+        thumb.appendChild(previewCanvas(stripLayoutForPreset(stripPhotoCount, preset), preset, 400, i));
         button.append(thumb, el('b', '', preset.name), el('small', '', `${stripPhotoCount} photos`));
-        button.onclick = () => startCapture('strip', stripPhotoCount, preset, preset.name + ' strip');
+        button.onclick = () => {
+            if (preset.customArtwork) startServerFrame(preset);
+            else startCapture('strip', stripPhotoCount, preset, preset.name + ' strip');
+        };
         host.appendChild(button);
     });
     document.querySelectorAll('[data-strip-count]').forEach(button => {
@@ -1578,6 +2363,7 @@ function setupCameraTemplate() {
     if (!flow.savedDesign) {
         cam.classList.remove('templated');
         overlay.hidden = true;
+        overlay.style.pointerEvents = 'none';
         ['--slot-x', '--slot-y', '--slot-w', '--slot-h', '--slot-clip'].forEach(p => cam.style.removeProperty(p));
         return;
     }
@@ -1593,6 +2379,8 @@ function setupCameraTemplate() {
     cam.style.setProperty('--slot-clip', photoShapeClipCSS(slot.shape));
     overlay.width = L.W;
     overlay.height = L.H;
+    overlay.style.pointerEvents = d.stickers && d.stickers.length ? 'auto' : 'none';
+    overlay.style.cursor = d.stickers && d.stickers.length ? 'grab' : '';
     const ctx = overlay.getContext('2d');
     if (flow.serverTemplate && activeServerFrame) {
         // Preserve the PNG's own alpha mask so shaped photo windows keep their
@@ -1605,9 +2393,54 @@ function setupCameraTemplate() {
         // Keep the live camera visible in the photo window even when a saved
         // image contains a checkerboard preview instead of real transparency.
         ctx.save(); photoShapePath(ctx, slot); ctx.clip(); ctx.clearRect(slot.x, slot.y, slot.w, slot.h); ctx.restore();
+        ctx.save(); photoShapePath(ctx, slot); ctx.clip(); drawStripArtwork(ctx, d, L); ctx.restore();
+        drawStickersInCameraWindow(ctx, d, slot);
     }
     overlay.hidden = false;
 }
+
+function drawStickersInCameraWindow(ctx, design, slot) {
+    if (!design?.stickers?.length) return;
+    ctx.save(); photoShapePath(ctx, slot); ctx.clip();
+    design.stickers.forEach(sticker => drawSticker(ctx, sticker));
+    ctx.restore();
+}
+
+// Stickers on a saved studio design can be repositioned directly in the
+// capture preview. Coordinates stay in the design's native canvas space.
+let cameraStickerDrag = null;
+function cameraCanvasPoint(e) {
+    const rect = $('camFrame').getBoundingClientRect(), L = flow.layout;
+    return {x: (e.clientX - rect.left) * L.W / rect.width, y: (e.clientY - rect.top) * L.H / rect.height};
+}
+$('camFrame').addEventListener('pointerdown', e => {
+    const design = flow.savedDesign;
+    if (view !== 'capture' || !design || !design.stickers?.length || $('camFrame').hidden) return;
+    const p = cameraCanvasPoint(e);
+    for (let i = design.stickers.length - 1; i >= 0; i--) {
+        const sticker = design.stickers[i], local = toLocal(sticker, p), box = stickerBox(sticker);
+        if (Math.abs(local.x) > box.w / 2 || Math.abs(local.y) > box.h / 2) continue;
+        cameraStickerDrag = {sticker, dx: sticker.x - p.x, dy: sticker.y - p.y};
+        $('camFrame').setPointerCapture(e.pointerId);
+        $('camFrame').style.cursor = 'grabbing';
+        e.preventDefault();
+        break;
+    }
+});
+$('camFrame').addEventListener('pointermove', e => {
+    if (!cameraStickerDrag) return;
+    const p = cameraCanvasPoint(e), L = flow.layout;
+    cameraStickerDrag.sticker.x = clamp(p.x + cameraStickerDrag.dx, 0, L.W);
+    cameraStickerDrag.sticker.y = clamp(p.y + cameraStickerDrag.dy, 0, L.H);
+    updateServerCameraWindow();
+});
+function finishCameraStickerDrag() {
+    if (!cameraStickerDrag) return;
+    cameraStickerDrag = null;
+    $('camFrame').style.cursor = 'grab';
+}
+$('camFrame').addEventListener('pointerup', finishCameraStickerDrag);
+$('camFrame').addEventListener('pointercancel', finishCameraStickerDrag);
 
 function updateServerCameraWindow() {
     const L = flow.layout, index = Math.min(photos.length, L.n - 1);
@@ -1626,6 +2459,8 @@ function updateServerCameraWindow() {
         const ctx = overlay.getContext('2d');
         render(ctx, d, {sc: 1, photos, layer: buildLayer(d, 1)});
         ctx.save(); photoShapePath(ctx, slot); ctx.clip(); ctx.clearRect(slot.x, slot.y, slot.w, slot.h); ctx.restore();
+        ctx.save(); photoShapePath(ctx, slot); ctx.clip(); drawStripArtwork(ctx, d, L); ctx.restore();
+        drawStickersInCameraWindow(ctx, d, slot);
         return;
     }
     if (!flow.serverTemplate || !activeServerFrame) return;
@@ -1640,9 +2475,9 @@ function updateServerCameraWindow() {
     drawFrameTexts(ctx, L);
 }
 
-function startCapture(mode, n, preset, name, savedDesign = null) {
+function startCapture(mode, n, preset, name, savedDesign = null, liveRoom = false) {
     editingSavedTemplateKey = null;
-    const layout = layoutFor(mode, n);
+    const layout = mode === 'strip' ? stripLayoutForPreset(n, preset) : layoutFor(mode, n);
     if (savedDesign && savedDesign.layout && savedDesign.layout.slots && savedDesign.layout.slots.length === layout.slots.length) {
         layout.slots = savedDesign.layout.slots.map(slot => ({...slot}));
     }
@@ -1662,8 +2497,9 @@ function startCapture(mode, n, preset, name, savedDesign = null) {
         cam.classList.remove('templated', 'overlay-design');
         ['--slot-x', '--slot-y', '--slot-w', '--slot-h', '--slot-clip'].forEach(p => cam.style.removeProperty(p));
         overlay.hidden = true;
-        cam.style.setProperty('--ar', `${s.w}/${s.h}`);
-        cam.style.setProperty('--arn', (s.w / s.h).toFixed(4));
+        const previewAspect = liveRoom ? 16 / 9 : s.w / s.h;
+        cam.style.setProperty('--ar', liveRoom ? '16/9' : `${s.w}/${s.h}`);
+        cam.style.setProperty('--arn', previewAspect.toFixed(4));
     } else {
         setupCameraTemplate();
         if (!savedDesign) {
@@ -1671,7 +2507,7 @@ function startCapture(mode, n, preset, name, savedDesign = null) {
             cam.style.setProperty('--arn', (s.w / s.h).toFixed(4));
         }
     }
-    const camAspect = n === 1 && savedDesign ? flow.layout.W / flow.layout.H : s.w / s.h;
+    const camAspect = liveRoom ? 16 / 9 : n === 1 && savedDesign ? flow.layout.W / flow.layout.H : s.w / s.h;
     $('v-capture').style.setProperty('--capture-ar', camAspect.toFixed(4));
     $('capName').textContent = name;
     buildSlots();
@@ -1812,9 +2648,11 @@ async function runSequence() {
             sl.classList.add('on');
             await sleep(380);
             photos.push(frameFromSource(vid, vid.videoWidth, vid.videoHeight, L.slots[photos.length], mirror && facing === 'user', camRes));
+            recordSiteMetric('photos_captured');
             sl.classList.remove('on');
         } else {
             photos.push(frameFromSource(vid, vid.videoWidth, vid.videoHeight, L.slots[photos.length], mirror && facing === 'user', camRes));
+            recordSiteMetric('photos_captured');
         }
         const sh = $('shutter');
         sh.classList.add('hit'); void sh.offsetWidth; sh.classList.remove('hit');
@@ -1845,6 +2683,7 @@ async function handleUpload(files) {
         try {
             const bmp = await loadBitmap(f);
             photos.push(frameFromSource(bmp.src, bmp.w, bmp.h, L.slots[photos.length], false));
+            recordSiteMetric('photos_captured');
         } catch (e) { toast('Could not read one of the images'); }
     }
     buildSlots();
@@ -1870,6 +2709,56 @@ function buildTimers() {
     });
 }
 $('shootBtn').onclick = runSequence;
+$('framePersonalizeBack').onclick = () => show(serverFrameReturnView);
+$('framePersonalizeCapture').onclick = () => { buildSlots(); show('capture'); };
+    $('framePersonalizeSave').onclick = savePersonalizedFrame;
+$('frameCampaignBrandName').addEventListener('input', updatePersonalizeRequirements);
+$('framePersonalizeSaveName').addEventListener('input', updatePersonalizeRequirements);
+$('framePersonalizeSectionNav').addEventListener('click', event => {
+    const button = event.target.closest('[data-personalize-section]');
+    if (button && !button.hidden) showFramePersonalizeSection(button.dataset.personalizeSection);
+});
+$('framePersonalizeSaveTop').onclick = savePersonalizedFrame;
+$('framePreviewZoomOut').onclick = () => setFramePreviewZoom(framePreviewZoom - .1);
+$('framePreviewZoomIn').onclick = () => setFramePreviewZoom(framePreviewZoom + .1);
+$('framePreviewZoomFit').onclick = () => setFramePreviewZoom(1);
+const framePreviewCanvas = $('framePersonalizeCanvas');
+framePreviewCanvas.addEventListener('pointerdown', event => {
+    if (framePreviewZoom <= 1) return;
+    const wrap = framePreviewCanvas.parentElement;
+    const hasOverflow = framePreviewCanvas.offsetWidth * framePreviewZoom > wrap.clientWidth + 1
+        || framePreviewCanvas.offsetHeight * framePreviewZoom > wrap.clientHeight + 1;
+    if (!hasOverflow) return;
+    framePreviewDrag = {pointerId: event.pointerId, x: event.clientX, y: event.clientY, panX: framePreviewPan.x, panY: framePreviewPan.y};
+    framePreviewCanvas.setPointerCapture(event.pointerId);
+    framePreviewCanvas.classList.add('is-panning');
+    event.preventDefault();
+});
+framePreviewCanvas.addEventListener('pointermove', event => {
+    if (!framePreviewDrag || framePreviewDrag.pointerId !== event.pointerId) return;
+    framePreviewPan.x = framePreviewDrag.panX + event.clientX - framePreviewDrag.x;
+    framePreviewPan.y = framePreviewDrag.panY + event.clientY - framePreviewDrag.y;
+    applyFramePreviewTransform();
+});
+function endFramePreviewDrag(event) {
+    if (!framePreviewDrag || framePreviewDrag.pointerId !== event.pointerId) return;
+    framePreviewDrag = null;
+    framePreviewCanvas.classList.remove('is-panning');
+}
+framePreviewCanvas.addEventListener('pointerup', endFramePreviewDrag);
+framePreviewCanvas.addEventListener('pointercancel', endFramePreviewDrag);
+$('framePersonalizeCopyLink').onclick = async () => {
+    const link = $('framePersonalizeShareUrlText').textContent;
+    try {
+        await navigator.clipboard.writeText(link);
+        toast('Frame link copied');
+    } catch {
+        const selection = window.getSelection(), range = document.createRange();
+        range.selectNodeContents($('framePersonalizeShareUrlText'));
+        selection.removeAllRanges(); selection.addRange(range);
+        toast('Select and copy the frame link');
+    }
+};
 $('flipBtn').onclick = () => { facing = facing === 'user' ? 'environment' : 'user'; startCam(); };
 $('mirBtn').onclick = e => { mirror = !mirror; e.currentTarget.classList.toggle('on', mirror); applyMirror(); };
 $('flashBtn').onclick = e => { flashOn = !flashOn; e.currentTarget.classList.toggle('on', flashOn); };
@@ -1898,6 +2787,7 @@ async function exportPNG() {
     a.href = URL.createObjectURL(b);
     a.download = `photobooth-${stamp()}.png`;
     document.body.appendChild(a); a.click(); a.remove();
+    recordSiteMetric('downloads');
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     toast('Saved to your downloads');
 }
@@ -1939,7 +2829,8 @@ function stripPresetMatches(preset) {
         doc.pattern.id === (pattern.id || 'none') &&
         doc.pattern.color === (pattern.color || null) &&
         doc.pattern.alpha === (pattern.alpha ?? .14) &&
-        doc.filter === (preset.filter || 'Normal');
+        doc.filter === (preset.filter || 'Normal') &&
+        doc.stripArtwork === (preset.stripArtwork || '');
 }
 function buildStripStyleChoices() {
     const section = $('stripStyleTools'), host = $('stripStyleGrid');
@@ -1947,18 +2838,22 @@ function buildStripStyleChoices() {
     section.hidden = !visible;
     host.replaceChildren();
     if (!visible) return;
-    STRIPS.forEach((preset, index) => {
+    stripPresetsForCount(flow.n).forEach((preset, index) => {
         const button = el('button', 'tile strip-style-tile');
         button.type = 'button';
         button.classList.toggle('on', stripPresetMatches(preset));
         button.setAttribute('aria-pressed', String(stripPresetMatches(preset)));
-        button.append(previewCanvas(layoutFor('strip', flow.n), preset, 50, index), el('span', '', preset.name));
+        button.append(previewCanvas(stripLayoutForPreset(flow.n, preset), preset, 50, index), el('span', '', preset.name));
         button.onclick = () => {
             const bg = preset.bg || {mode: 'color', c1: '#ffffff'};
             const pattern = preset.pattern || {};
+            const nextLayout = stripLayoutForPreset(flow.n, preset);
+            doc.layout = nextLayout;
+            flow.layout = nextLayout;
             doc.bg = {mode: bg.mode, c1: bg.c1 || '#ffffff', c2: bg.c2 || bg.c1 || '#ffffff', imgId: null, preset: ''};
             doc.pattern = {id: pattern.id || 'none', color: pattern.color || null, alpha: pattern.alpha ?? .14, size: pattern.size ?? 1};
             doc.filter = preset.filter || 'Normal';
+            doc.stripArtwork = preset.stripArtwork || '';
             flow.preset = preset;
             flow.name = `${preset.name} strip`;
             changed();
@@ -2056,7 +2951,7 @@ function draw() {
     render(cctx, doc, {sc: dispSc, photos: photosFor(doc.filter), layer: liveLayer(dispSc), sel: tab === 'draw' ? null : selId, k: dispK, placeholderSlots: true});
     // Keep the selected photo window visible as a placement guide in every
     // Studio tool. This is drawn over the preview only, never into exports.
-    if (!flow.serverTemplate) drawPhotoSlotSelection(cctx);
+    if (!flow.serverTemplate && tab !== 'bg') drawPhotoSlotSelection(cctx);
     if (tab === 'text') {
         // Captions, dates, and locations are document text too, including on
         // server-backed frames. Draw both selection overlays so their canvas
@@ -2118,11 +3013,15 @@ function buildCameraFrameChoices() {
 }
 function buildPhotoWindowFields() {
     const host = $('photoWindowFields'), slots = doc && doc.layout && doc.layout.slots || [];
-    const enabled = !flow.serverTemplate && slots.length > 0;
+    const enabled = !flow.serverTemplate;
     $('photoWindowTools').hidden = !enabled;
     host.innerHTML = '';
     buildCameraFrameChoices();
     if (!enabled) return;
+    if (!slots.length) {
+        host.appendChild(el('p', 'hint photo-window-custom-label', 'No camera windows. Choose a layout above to add one. This artwork can be saved without a camera window.'));
+        return;
+    }
     if (doc.layout.customPhotoWindows) {
         const label = el('p', 'hint photo-window-custom-label', `Custom layout \u00B7 ${slots.length} ${slots.length === 1 ? 'window' : 'windows'}`);
         host.appendChild(label);
@@ -2141,8 +3040,7 @@ function buildPhotoWindowFields() {
         shape.onchange = () => { slot.shape = shape.value; live.dirty = true; changed(); };
         const remove = el('button', 'photo-window-remove', '\u00D7');
         remove.type = 'button'; remove.setAttribute('aria-label', `Remove photo window ${index + 1}`);
-        remove.title = slots.length === 1 ? 'At least one photo window is required' : `Remove photo window ${index + 1}`;
-        remove.disabled = slots.length <= 1;
+        remove.title = `Remove photo window ${index + 1}`;
         remove.onclick = () => removePhotoWindow(index);
         row.append(button, shape, remove);
         host.appendChild(row);
@@ -2150,18 +3048,19 @@ function buildPhotoWindowFields() {
 }
 function removePhotoWindow(index) {
     const slots = doc && doc.layout && doc.layout.slots;
-    if (!slots || slots.length <= 1 || index < 0 || index >= slots.length) return;
+    if (!slots || index < 0 || index >= slots.length) return;
     slots.splice(index, 1);
     doc.layout.n = slots.length;
     doc.layout.customPhotoWindows = true;
     photos.splice(index, 1); photoVer++;
     flow.mode = 'instant'; flow.n = slots.length; flow.preset = null; flow.layout = doc.layout;
     flow.name = `Custom ${slots.length}-window frame`;
-    selectedSlotIndex = Math.min(selectedSlotIndex === index ? index : selectedSlotIndex > index ? selectedSlotIndex - 1 : selectedSlotIndex, slots.length - 1);
+    selectedSlotIndex = slots.length ? Math.min(selectedSlotIndex === index ? index : selectedSlotIndex > index ? selectedSlotIndex - 1 : selectedSlotIndex, slots.length - 1) : 0;
     live.dirty = true;
     buildPhotoWindowFields();
     fitStage();
     changed();
+    if (!slots.length) toast('Camera window removed. Choose a layout above to add one back.');
 }
 function photoSlotBox(index = selectedSlotIndex) {
     const s = doc && doc.layout && doc.layout.slots[index];
@@ -2299,11 +3198,114 @@ function bgFrameSvg(preset) {
     if (style === 'diwali') art = `<pattern id="p" width="100" height="90" patternUnits="userSpaceOnUse"><path d="M18 48q18 25 36 0z" fill="${accent}"/><path d="M36 28q-10 12 0 18q10-6 0-18" fill="#ffe78a"/><circle cx="78" cy="20" r="3" fill="#ffe78a"/><path d="M78 10v-5m0 30v-5m10-10h5m-30 0h5m17-7 4-4m-22 22 4-4m14 0 4 4m-22-22 4 4" stroke="#ffe78a" stroke-width="2"/></pattern>`;
     return `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="640" viewBox="0 0 480 640"><rect width="480" height="640" fill="${bg}"/><defs>${art}</defs><rect width="480" height="640" fill="url(#p)"/></svg>`;
 }
-function useBgImage(img, lum, preset = '') {
+function useBgImage(img, lum, preset = '', preserveAlpha = false) {
     const id = 'img' + imgSeq++;
     IMGS[id] = {img, lum};
-    doc.bg = {mode: 'image', c1: '#ffffff', c2: '#ffffff', imgId: id, preset, zoom: 1, ox: 0, oy: 0};
+    doc.bg = {mode: 'image', c1: '#ffffff', c2: '#ffffff', imgId: id, preset, preserveAlpha, zoom: 1, ox: 0, oy: 0};
     changed();
+}
+function detectTransparentPhotoWindows(image, layout) {
+    const imageWidth = image.naturalWidth || image.width, imageHeight = image.naturalHeight || image.height;
+    if (!imageWidth || !imageHeight) return [];
+    const scale = Math.min(1, 600 / Math.max(imageWidth, imageHeight));
+    const width = Math.max(1, Math.round(imageWidth * scale));
+    const height = Math.max(1, Math.round(imageHeight * scale));
+    const sample = mk(width, height), ctx = sample.getContext('2d', {willReadFrequently: true});
+    ctx.drawImage(image, 0, 0, width, height);
+    const alpha = ctx.getImageData(0, 0, width, height).data;
+    const seen = new Uint8Array(width * height), queue = new Uint32Array(width * height), windows = [];
+    for (let start = 0; start < seen.length; start++) {
+        if (seen[start] || alpha[start * 4 + 3] >= 80) continue;
+        let head = 0, tail = 0, minX = start % width, maxX = minX, minY = Math.floor(start / width), maxY = minY;
+        queue[tail++] = start; seen[start] = 1;
+        while (head < tail) {
+            const p = queue[head++], x = p % width, y = Math.floor(p / width);
+            minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+            const neighbors = [x ? p - 1 : -1, x + 1 < width ? p + 1 : -1, y ? p - width : -1, y + 1 < height ? p + width : -1];
+            for (const next of neighbors) if (next >= 0 && !seen[next] && alpha[next * 4 + 3] < 80) {
+                seen[next] = 1; queue[tail++] = next;
+            }
+        }
+        const touchesEdge = minX === 0 || minY === 0 || maxX === width - 1 || maxY === height - 1;
+        if (!touchesEdge && tail >= width * height * .012) windows.push({minX, maxX, minY, maxY, area: tail});
+    }
+    // A frame upload creates one camera window: use its largest enclosed
+    // transparent opening, even if the artwork contains smaller clear details.
+    windows.sort((a, b) => b.area - a.area);
+    const cover = bgBox({zoom: 1, ox: 0, oy: 0}, layout, imageWidth, imageHeight);
+    const offsetX = (layout.W - cover.w) / 2, offsetY = (layout.H - cover.h) / 2;
+    return windows.slice(0, 1).map(({minX, maxX, minY, maxY}) => {
+        const x0 = clamp(offsetX + minX / width * cover.w, 0, layout.W);
+        const y0 = clamp(offsetY + minY / height * cover.h, 0, layout.H);
+        const x1 = clamp(offsetX + (maxX + 1) / width * cover.w, 0, layout.W);
+        const y1 = clamp(offsetY + (maxY + 1) / height * cover.h, 0, layout.H);
+        return {x: x0, y: y0, w: x1 - x0, h: y1 - y0, shape: 'square'};
+    }).filter(slot => slot.w > 0 && slot.h > 0);
+}
+function mapDetectedTemplateWindows(windows, image, layout) {
+    const imageWidth = image.naturalWidth || image.width, imageHeight = image.naturalHeight || image.height;
+    const cover = bgBox({zoom: 1, ox: 0, oy: 0}, layout, imageWidth, imageHeight);
+    const offsetX = (layout.W - cover.w) / 2, offsetY = (layout.H - cover.h) / 2;
+    return windows.slice(0, 1).map(slot => {
+        const x0 = clamp(offsetX + slot.x / 100 * cover.w, 0, layout.W);
+        const y0 = clamp(offsetY + slot.y / 100 * cover.h, 0, layout.H);
+        const x1 = clamp(offsetX + (slot.x + slot.w) / 100 * cover.w, 0, layout.W);
+        const y1 = clamp(offsetY + (slot.y + slot.h) / 100 * cover.h, 0, layout.H);
+        return {x: x0, y: y0, w: x1 - x0, h: y1 - y0, shape: 'square'};
+    }).filter(slot => slot.w > 0 && slot.h > 0);
+}
+function removeCheckerboardOpening(source) {
+    const sourceW = source.naturalWidth || source.width, sourceH = source.naturalHeight || source.height;
+    if (!sourceW || !sourceH) return null;
+    const sampleScale = Math.min(1, 300 / Math.max(sourceW, sourceH));
+    const gw = Math.max(1, Math.round(sourceW * sampleScale)), gh = Math.max(1, Math.round(sourceH * sampleScale));
+    const sample = mk(gw, gh), sampleCtx = sample.getContext('2d', {willReadFrequently: true});
+    sampleCtx.drawImage(source, 0, 0, gw, gh);
+    const samplePixels = sampleCtx.getImageData(0, 0, gw, gh).data;
+    const count = gw * gh, mask = new Uint8Array(count), seen = new Uint8Array(count);
+    const selected = new Uint8Array(count), queue = new Uint32Array(count);
+    const grayAt = (pixels, index) => {
+        const r = pixels[index], g = pixels[index + 1], b = pixels[index + 2];
+        const low = Math.min(r, g, b), high = Math.max(r, g, b), spread = high - low;
+        return {low, spread, loose: low >= 140 && spread <= 40, strict: low >= 175 && spread <= 14};
+    };
+    for (let p = 0; p < count; p++) mask[p] = grayAt(samplePixels, p * 4).loose ? 1 : 0;
+    const minArea = count * .0008;
+    for (let start = 0; start < count; start++) {
+        if (!mask[start] || seen[start]) continue;
+        let head = 0, tail = 0, strictCount = 0, whiteCount = 0, midCount = 0;
+        queue[tail++] = start; seen[start] = 1;
+        while (head < tail) {
+            const p = queue[head++], color = grayAt(samplePixels, p * 4);
+            if (color.strict) {
+                strictCount++;
+                if (color.low >= 252) whiteCount++;
+                if (color.low >= 170 && color.low < 252) midCount++;
+            }
+            const x = p % gw, y = Math.floor(p / gw);
+            const neighbors = [x ? p - 1 : -1, x + 1 < gw ? p + 1 : -1, y ? p - gw : -1, y + 1 < gh ? p + gw : -1];
+            for (const next of neighbors) if (next >= 0 && mask[next] && !seen[next]) {
+                seen[next] = 1; queue[tail++] = next;
+            }
+        }
+        if (tail >= minArea && strictCount && whiteCount / strictCount >= .12 && midCount / strictCount >= .12) {
+            for (let i = 0; i < tail; i++) selected[queue[i]] = 1;
+        }
+    }
+    if (!selected.some(Boolean)) return null;
+    const maxSide = 1400, outputScale = Math.min(1, maxSide / Math.max(sourceW, sourceH));
+    const width = Math.max(1, Math.round(sourceW * outputScale)), height = Math.max(1, Math.round(sourceH * outputScale));
+    const output = mk(width, height), outputCtx = output.getContext('2d', {willReadFrequently: true});
+    outputCtx.drawImage(source, 0, 0, width, height);
+    const image = outputCtx.getImageData(0, 0, width, height), pixels = image.data;
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+        const sampleIndex = Math.floor(y / height * gh) * gw + Math.floor(x / width * gw);
+        if (!selected[sampleIndex]) continue;
+        const i = (y * width + x) * 4, color = grayAt(pixels, i);
+        if (color.loose) pixels[i + 3] = 0;
+    }
+    outputCtx.putImageData(image, 0, 0);
+    return output;
 }
 function buildBackground() {
     swatches($('bgColors'), BG_COLORS, c => { doc.bg = {mode: 'color', c1: c, c2: c, imgId: null}; changed(); });
@@ -2360,13 +3362,57 @@ function buildBackground() {
         const f = e.target.files[0]; e.target.value = '';
         if (!f) return;
         try {
-            const r = await loadBitmap(f), im = r.src;
+            const r = await loadBitmap(f);
+            let im = r.src;
+            let serverWindows = [];
+            try {
+                const data = new FormData(); data.append('image', f);
+                const response = await fetch('/api/detect-uploaded-template/', {
+                    method: 'POST', body: data,
+                    headers: {'X-CSRFToken': document.querySelector('meta[name="csrf"]').content}
+                });
+                const result = await response.json();
+                if (response.ok && result.ok) {
+                    serverWindows = Array.isArray(result.windows) ? result.windows : [];
+                    if (result.cleanedImage) {
+                        const cleaned = new Image();
+                        await new Promise((resolve, reject) => {
+                            cleaned.onload = resolve; cleaned.onerror = reject; cleaned.src = result.cleanedImage;
+                        });
+                        im = cleaned;
+                    }
+                }
+            } catch { /* Continue with client-side transparency detection. */ }
+            const checkerboardCleaned = removeCheckerboardOpening(im);
+            if (checkerboardCleaned) im = checkerboardCleaned;
+            if ($('bgRemovePlain').checked) {
+                const transparent = new Image();
+                await new Promise((resolve, reject) => {
+                    transparent.onload = resolve;
+                    transparent.onerror = () => reject(new Error('Could not process the background'));
+                    transparent.src = removePlainBackground(im);
+                });
+                im = transparent;
+            }
+            const detectedWindows = serverWindows.length
+                ? mapDetectedTemplateWindows(serverWindows, im, doc.layout)
+                : detectTransparentPhotoWindows(im, doc.layout);
+            if (detectedWindows.length) {
+                doc.layout.slots = detectedWindows;
+                doc.layout.n = detectedWindows.length;
+                doc.layout.customPhotoWindows = true;
+                flow.mode = 'instant'; flow.n = detectedWindows.length; flow.preset = null; flow.layout = doc.layout;
+                flow.name = `Detected ${detectedWindows.length}-window frame`;
+                photos = []; photoVer++; selectedSlotIndex = 0;
+                buildPhotoWindowFields(); fitStage();
+                toast(`Found ${detectedWindows.length} transparent photo window${detectedWindows.length === 1 ? '' : 's'}`);
+            }
             const t = mk(16, 16), x = t.getContext('2d');
             x.drawImage(im, 0, 0, 16, 16);
             const d = x.getImageData(0, 0, 16, 16).data;
             let sum = 0;
             for (let i = 0; i < d.length; i += 4) sum += .299 * d[i] + .587 * d[i + 1] + .114 * d[i + 2];
-            useBgImage(im, sum / (256 * 255));
+            useBgImage(im, sum / (256 * 255), '', true);
         } catch (err) { toast('Could not read that image'); }
     };
     const zs = $('bgZoom');
@@ -2446,8 +3492,9 @@ function addSticker(e) {
 }
 const logoImages = new Map();
 function removePlainBackground(source) {
-    const maxSide = 1400, scale = Math.min(1, maxSide / Math.max(source.naturalWidth, source.naturalHeight));
-    const canvas = mk(source.naturalWidth * scale, source.naturalHeight * scale), ctx = canvas.getContext('2d', {willReadFrequently: true});
+    const sourceW = source.naturalWidth || source.width, sourceH = source.naturalHeight || source.height;
+    const maxSide = 1400, scale = Math.min(1, maxSide / Math.max(sourceW, sourceH));
+    const canvas = mk(sourceW * scale, sourceH * scale), ctx = canvas.getContext('2d', {willReadFrequently: true});
     ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
     const image = ctx.getImageData(0, 0, canvas.width, canvas.height), px = image.data, w = canvas.width, h = canvas.height, n = w * h;
     const sw = Math.min(12, w), sh = Math.min(12, h);
@@ -2991,6 +4038,22 @@ cv.addEventListener('pointerdown', e => {
         if (tab !== 'uploads') setTab('uploads');
         syncPanels(); draw(); return;
     }
+    const selectedSticker = selSticker();
+    if (selectedSticker) {
+        const local = toLocal(selectedSticker, p), half = selectedSticker.s * .6, radius = 24 * dispK;
+        if (Math.hypot(local.x + half, local.y + half) < radius) { delSticker(selectedSticker.id); changed(); return; }
+        if (Math.hypot(local.x - half, local.y - half) < radius) { ptr.mode = 'scale'; ptr.s = selectedSticker; return; }
+    }
+    // Resolve sticker hits before photo windows. A sticker placed over a
+    // window must drag independently instead of moving the camera window.
+    const sticker = stickerUnderPointer;
+    if (sticker) {
+        selId = sticker.id;
+        doc.stickers = doc.stickers.filter(item => item !== sticker).concat(sticker);
+        ptr.mode = 'move'; ptr.s = sticker; ptr.dx = sticker.x - p.x; ptr.dy = sticker.y - p.y; ptr.moved = false;
+        if (tab !== 'stickers') setTab('stickers');
+        syncPanels(); draw(); return;
+    }
     if (tab !== 'draw' && flow.serverTemplate) {
         const selected = flow.serverTemplate.texts.find(item => String(item.id) === String(serverTextSel));
         const selectedBox = selected && serverFieldBox(selected), selectedState = selected && frameTextState(selected);
@@ -3024,7 +4087,7 @@ cv.addEventListener('pointerdown', e => {
             return;
         }
     }
-    if (tab !== 'draw' && !flow.serverTemplate) {
+    if (tab !== 'draw' && tab !== 'bg' && !flow.serverTemplate) {
         const handle = photoSlotHandle(p);
         if (handle?.type === 'delete') { removePhotoWindow(selectedSlotIndex); return; }
         const hitIndex = hitPhotoSlot(p);
@@ -3087,7 +4150,7 @@ cv.addEventListener('pointerdown', e => {
             return;
         }
     }
-    if (tab !== 'draw' && !flow.serverTemplate) {
+    if (tab !== 'draw' && tab !== 'bg' && !flow.serverTemplate) {
         const index = hitPhotoSlot(p);
         if (index >= 0) {
             selectedSlotIndex = index; buildPhotoWindowFields();
@@ -3097,19 +4160,7 @@ cv.addEventListener('pointerdown', e => {
             draw(); return;
         }
     }
-    const sel = selSticker();
-    if (sel) {
-        const l = toLocal(sel, p), h = sel.s * .6, R = 24 * dispK;
-        if (Math.hypot(l.x + h, l.y + h) < R) { delSticker(sel.id); ptr.mode = null; changed(); return; }
-        if (Math.hypot(l.x - h, l.y - h) < R) { ptr.mode = 'scale'; ptr.s = sel; return; }
-    }
-    const hit = hitSticker(p);
-    if (hit) {
-        selId = hit.id;
-        doc.stickers = doc.stickers.filter(s => s !== hit).concat(hit);
-        ptr.mode = 'move'; ptr.s = hit; ptr.dx = hit.x - p.x; ptr.dy = hit.y - p.y; ptr.moved = false;
-        if (tab !== 'stickers') setTab('stickers');
-    } else {
+    {
         selId = null; ptr.mode = null;
         if (tab === 'bg' && doc.bg.mode === 'image') {
             const bx = bgImgBox(doc);
@@ -3121,7 +4172,7 @@ cv.addEventListener('pointerdown', e => {
 cv.addEventListener('pointermove', e => {
     if (!ptr.mode) {
         if (!doc) return;
-        const p = docPt(e), photoHandle = tab !== 'draw' && !flow.serverTemplate ? photoSlotHandle(p) : null;
+        const p = docPt(e), photoHandle = tab !== 'draw' && tab !== 'bg' && !flow.serverTemplate ? photoSlotHandle(p) : null;
         const onText = tab !== 'draw' && (flow.serverTemplate ? !!hitServerText(p) : hitPhotoSlot(p) >= 0 || !!hitFooterText(p));
         const cursorByEdge = {e:'ew-resize',w:'ew-resize',n:'ns-resize',s:'ns-resize',ne:'nesw-resize',sw:'nesw-resize',nw:'nwse-resize',se:'nwse-resize'};
         cv.style.cursor = photoHandle?.type === 'delete' ? 'pointer' : photoHandle?.type === 'resize' ? cursorByEdge[photoHandle.edge] : (onText || (tab !== 'draw' && !!hitSticker(p))) ? 'grab' : (tab === 'draw' ? (pen.e ? 'cell' : 'crosshair') : 'default');
@@ -3235,10 +4286,12 @@ window.addEventListener('keydown', e => {
 buildTimers();
 buildZoomBar();
 buildHome();
+initPrinterAnimation();
 buildBackground();
 buildPatternControls();
 buildStickers();
 buildDraw();
+startSiteStats();
 if (adminStudioConfig) {
     $('sShare').hidden = true;
     $('dlBtn').hidden = true;

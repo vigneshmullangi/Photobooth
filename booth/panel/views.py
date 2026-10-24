@@ -1,6 +1,7 @@
 from datetime import timedelta
 from functools import wraps
 from io import BytesIO
+import base64
 import json
 import math
 from pathlib import Path
@@ -23,9 +24,11 @@ from django.utils.text import slugify
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
-from ..models import BusinessCampaign, Category, Creation, FrameSlot, FrameTemplate, Inquiry
+from ..models import BusinessCampaign, Category, FrameSlot, FrameTemplate, Inquiry, StripLayoutVariant, StripPhotoWindow, StripTemplate
+from ..cleaner import remove_checkerboard
+from ..detect import detect_windows
 from .context import notification_payload
-from .forms import CampaignForm, CategoryForm, FrameForm, SlotFormSet, StaffAuthenticationForm, TextFieldFormSet
+from .forms import CampaignForm, CategoryForm, FrameForm, SlotFormSet, StaffAuthenticationForm, StripPhotoWindowFormSet, StripStudioFieldFormSet, StripTemplateForm, TextFieldFormSet
 
 
 # ---------------------------------------------------------------- helpers
@@ -85,14 +88,12 @@ def dashboard(request):
     since = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=13)
 
     # Bucket by day in Python so this works on MySQL without timezone tables.
-    inq_by_day, cre_by_day = {d: 0 for d in days}, {d: 0 for d in days}
+    inq_by_day = {d: 0 for d in days}
     for created in Inquiry.objects.filter(created__gte=since).values_list('created', flat=True):
         inq_by_day[timezone.localtime(created).date()] += 1
-    for created in Creation.objects.filter(created__gte=since).values_list('created', flat=True):
-        cre_by_day[timezone.localtime(created).date()] += 1
-    peak = max([1, *inq_by_day.values(), *cre_by_day.values()])
-    chart = [{'label': d.strftime('%d %b'), 'short': d.strftime('%d'), 'inq': inq_by_day[d], 'cre': cre_by_day[d],
-              'inq_h': round(inq_by_day[d] / peak * 100, 1), 'cre_h': round(cre_by_day[d] / peak * 100, 1)}
+    peak = max([1, *inq_by_day.values()])
+    chart = [{'label': d.strftime('%d %b'), 'short': d.strftime('%d'), 'inq': inq_by_day[d],
+              'inq_h': round(inq_by_day[d] / peak * 100, 1)}
              for d in days]
 
     ctx = page_ctx(
@@ -102,15 +103,12 @@ def dashboard(request):
             'campaigns_active': BusinessCampaign.objects.filter(is_active=True).count(),
             'frames': FrameTemplate.objects.count(),
             'frames_active': FrameTemplate.objects.filter(is_active=True, category__isnull=False).count(),
-            'creations': Creation.objects.count(),
-            'creations_week': Creation.objects.filter(created__gte=now - timedelta(days=7)).count(),
             'inquiries_new': Inquiry.objects.filter(is_read=False).count(),
             'inquiries_total': Inquiry.objects.count(),
         },
-        chart=chart, chart_total_inq=sum(inq_by_day.values()), chart_total_cre=sum(cre_by_day.values()),
+        chart=chart, chart_total_inq=sum(inq_by_day.values()),
         recent_inquiries=Inquiry.objects.all()[:6],
         recent_campaigns=BusinessCampaign.objects.select_related('frame_template').order_by('-created')[:5],
-        recent_creations=Creation.objects.select_related('template')[:8],
     )
     return render(request, 'panel/dashboard.html', ctx)
 
@@ -144,13 +142,31 @@ def campaign_edit(request, pk=None):
 
 
 @staff_required
+@never_cache
 def campaign_qr(request, pk):
     campaign = get_object_or_404(BusinessCampaign, pk=pk)
+    # Keep the QR modules clear. The campaign logo is placed above the code on
+    # the downloadable print layout, never over the scanning area.
     qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_Q, box_size=16, border=4)
     qr.add_data(campaign.public_url)
     qr.make(fit=True)
+    qr_image = qr.make_image(fill_color='black', back_color='white')
+    code = qr_image.get_image().convert('RGB') if hasattr(qr_image, 'get_image') else qr_image.convert('RGB')
+    image = code
+    if campaign.logo:
+        try:
+            with campaign.logo.open('rb') as logo_file:
+                logo = Image.open(logo_file).convert('RGBA')
+                logo.thumbnail((max(1, int(code.width * .46)), max(1, int(code.width * .22))), Image.LANCZOS)
+            margin = max(24, code.width // 14)
+            header_height = logo.height + margin * 2
+            image = Image.new('RGB', (code.width + margin * 2, code.height + header_height + margin), 'white')
+            image.paste(logo, ((image.width - logo.width) // 2, margin), logo)
+            image.paste(code, ((image.width - code.width) // 2, header_height))
+        except (OSError, ValueError):
+            image = code
     out = BytesIO()
-    qr.make_image(fill_color='black', back_color='white').save(out, format='PNG')
+    image.save(out, format='PNG')
     response = HttpResponse(out.getvalue(), content_type='image/png')
     disposition = 'attachment' if request.GET.get('download') else 'inline'
     response['Content-Disposition'] = f'{disposition}; filename="{campaign.slug}-qr.png"'
@@ -199,12 +215,33 @@ def frame_designer(request):
         'studio_backgrounds': [],
         'admin_studio_config': {
             'saveUrl': reverse('panel:frame_designer_save'),
+            'detectUrl': reverse('panel:frame_designer_detect'),
             'returnUrl': reverse('panel:campaign_edit', args=[campaign.pk]) if campaign else reverse('panel:frames'),
             'campaignId': campaign.pk if campaign else None,
             'frameId': frame.pk if frame else None,
             'defaultName': f'{campaign.brand_name} frame' if campaign else (f'{frame.name} copy' if frame else 'Campaign frame'),
         },
     })
+
+
+@staff_required
+@require_POST
+def frame_designer_detect(request):
+    upload = request.FILES.get('image')
+    if not upload or upload.size > 20 * 1024 * 1024:
+        return JsonResponse({'ok': False, 'error': 'Choose an image under 20 MB.'}, status=400)
+    try:
+        raw = upload.read()
+        cleaned = remove_checkerboard(BytesIO(raw))
+        if not cleaned:
+            return JsonResponse({'ok': True, 'cleanedImage': None})
+        with Image.open(BytesIO(cleaned)) as image:
+            if image.width > 6000 or image.height > 8000:
+                return JsonResponse({'ok': False, 'error': 'Image dimensions are too large.'}, status=400)
+        encoded = base64.b64encode(cleaned).decode('ascii')
+        return JsonResponse({'ok': True, 'cleanedImage': f'data:image/png;base64,{encoded}'})
+    except (OSError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'Could not inspect the uploaded image.'}, status=400)
 
 
 @staff_required
@@ -216,7 +253,7 @@ def frame_designer_save(request):
         return JsonResponse({'ok': False, 'error': 'Add a frame name and a PNG under 20 MB.'}, status=400)
     try:
         slots = json.loads(request.POST.get('slots', ''))
-        if not isinstance(slots, list) or not 1 <= len(slots) <= 4:
+        if not isinstance(slots, list) or not 0 <= len(slots) <= 4:
             raise ValueError
         cleaned_slots = []
         for slot in slots:
@@ -237,7 +274,8 @@ def frame_designer_save(request):
         image = Image.open(BytesIO(raw))
         image.verify()
         image = Image.open(BytesIO(raw)).convert('RGBA')
-        if image.width > 6000 or image.height > 8000 or image.getchannel('A').getextrema()[0] >= 255:
+        if (image.width > 6000 or image.height > 8000 or
+                (cleaned_slots and image.getchannel('A').getextrema()[0] >= 255)):
             return JsonResponse({'ok': False, 'error': 'The frame PNG must contain transparent photo windows.'}, status=400)
         png = BytesIO()
         image.save(png, format='PNG', optimize=True)
@@ -246,6 +284,8 @@ def frame_designer_save(request):
 
     campaign_id = request.POST.get('campaign_id', '').strip()
     campaign = get_object_or_404(BusinessCampaign, pk=campaign_id) if campaign_id.isdigit() else None
+    if campaign and not cleaned_slots:
+        return JsonResponse({'ok': False, 'error': 'A campaign frame needs at least one camera window.'}, status=400)
     frame_id = request.POST.get('frame_id', '').strip()
     frame = get_object_or_404(FrameTemplate, pk=frame_id) if frame_id.isdigit() else None
     with transaction.atomic():
@@ -270,7 +310,8 @@ def frame_designer_save(request):
             campaign.frame_template = frame
             campaign.save(update_fields=['frame_template', 'updated'])
     messages.success(request, f'Frame "{frame.name}" saved from Studio.' +
-                     (f' It is now assigned to {campaign.brand_name}.' if campaign else ''))
+                     (f' It is now assigned to {campaign.brand_name}.' if campaign else '') +
+                     (' It has no camera window and cannot be used for photo capture.' if not cleaned_slots else ''))
     return JsonResponse({'ok': True, 'frameId': frame.pk, 'frameName': frame.name,
                          'url': reverse('panel:campaign_edit', args=[campaign.pk]) if campaign
                          else reverse('panel:frame_edit', args=[frame.pk])})
@@ -429,6 +470,119 @@ def frame_delete(request, pk):
     return redirect('panel:frames')
 
 
+# ---------------------------------------------------------------- strip templates
+@staff_required
+def strip_templates(request):
+    items = StripTemplate.objects.all()
+    for item in items:
+        item.build_layout_variants()
+    return render(request, 'panel/strip_templates.html', page_ctx(
+        'strips', 'Photo strips', items=items))
+
+
+@staff_required
+def strip_template_edit(request, pk=None):
+    item = get_object_or_404(StripTemplate, pk=pk) if pk else None
+    count_raw = request.POST.get('variant_count') or request.GET.get('count', '3')
+    variant_count = int(count_raw) if str(count_raw).isdigit() and int(count_raw) in (2, 3, 4) else 3
+    if item:
+        item.build_layout_variants()
+        variant = item.layout_variants.get(photo_count=variant_count)
+    else:
+        variant = None
+    form = StripTemplateForm(request.POST or None, request.FILES or None, instance=item)
+    fieldset = StripStudioFieldFormSet(request.POST or None, request.FILES or None,
+                                       instance=item, prefix='texts') if item else None
+    slotset = StripPhotoWindowFormSet(request.POST or None, instance=variant, prefix='slots') if variant else None
+    if request.method == 'POST' and form.is_valid() and (fieldset is None or fieldset.is_valid()) and (slotset is None or slotset.is_valid()):
+        replaced_image = 'image' in form.changed_data
+        same_design = StripTemplate.objects.filter(name__iexact=form.cleaned_data['name']).order_by('pk').first() if not item else None
+        layout_uploads = {count: request.FILES.get(f'layout_image_{count}') for count in (2, 3, 4)}
+        if same_design and not any(layout_uploads.values()):
+            # A later upload from the "new strip" screen with the same design
+            # name is an additional count layout, not another catalog record.
+            upload = form.cleaned_data.get('image')
+            if upload:
+                upload.seek(0)
+                raw = upload.read()
+                cleaned = remove_checkerboard(BytesIO(raw))
+                found = detect_windows(BytesIO(cleaned or raw), max_slots=4, fallback=False, detect_light=True)
+                inferred_count = len(found) if len(found) in (2, 3, 4) else variant_count
+                upload.seek(0)
+                layout_uploads[inferred_count] = upload
+        with transaction.atomic():
+            if same_design:
+                saved = same_design
+                saved.order = form.cleaned_data['order']
+                saved.is_active = form.cleaned_data['is_active']
+                saved.save(update_fields=['order', 'is_active'])
+            else:
+                saved = form.save()
+            if fieldset is not None:
+                fieldset.instance = saved
+                fieldset.save()
+            uploaded_counts = []
+            for count in (2, 3, 4):
+                upload = layout_uploads.get(count)
+                if not upload:
+                    continue
+                if upload.size > 20 * 1024 * 1024:
+                    messages.error(request, f'The {count}-photo artwork must be under 20 MB.')
+                    continue
+                try:
+                    raw = upload.read()
+                    cleaned = remove_checkerboard(BytesIO(raw))
+                    with Image.open(BytesIO(cleaned or raw)) as source:
+                        if source.width > 6000 or source.height > 8000:
+                            raise ValueError('dimensions')
+                        artwork = source.convert('RGBA')
+                except (OSError, ValueError):
+                    messages.error(request, f'The {count}-photo artwork could not be read. Upload a valid image under 6000 × 8000 px.')
+                    continue
+                output = BytesIO()
+                artwork.save(output, format='PNG', optimize=True)
+                image_bytes = output.getvalue()
+                found = detect_windows(BytesIO(image_bytes), max_slots=4, fallback=False, detect_light=True)
+                layout = saved.layout_variants.get(photo_count=count)
+                layout.image.save(f'{slugify(saved.name) or "strip"}-{count}-photos.png',
+                                  ContentFile(image_bytes), save=False)
+                layout.canvas_width, layout.canvas_height = artwork.size
+                layout.save()
+                uploaded_counts.append(count)
+                if len(found) == count:
+                    layout.windows.all().delete()
+                    StripPhotoWindow.objects.bulk_create([
+                        StripPhotoWindow(variant=layout, order=i, x=w['x'], y=w['y'], w=w['w'], h=w['h'])
+                        for i, w in enumerate(found)
+                    ])
+                else:
+                    messages.info(request, f'The {count}-photo artwork was uploaded. Its camera windows were not auto-detected, so review their positions in the preview.')
+            if slotset is not None and not replaced_image and variant_count not in uploaded_counts:
+                slotset.save()
+        if same_design:
+            messages.success(request, f'Added the uploaded photo layout to "{saved.name}". It remains one strip record.')
+        else:
+            messages.success(request, f'Strip template "{saved.name}" saved.')
+        return redirect(f"{reverse('panel:strip_template_edit', args=[saved.pk])}?count={variant_count}")
+    return render(request, 'panel/strip_template_form.html', page_ctx(
+        'strips', item.name if item else 'Upload strip template', form=form, item=item,
+        fieldset=fieldset, slotset=slotset, variant=variant, variant_count=variant_count,
+        variants=list(item.layout_variants.all()) if item else [],
+        studio_fields=list(item.studio_fields.all()) if item else [],
+        windows=list(variant.windows.all()) if variant else [],
+        variant_image=(variant.image.url if variant and variant.image else (item.image.url if item and item.image else ''))))
+
+
+@staff_required
+@require_POST
+def strip_template_delete(request, pk):
+    item = get_object_or_404(StripTemplate, pk=pk)
+    name = item.name
+    item.delete()
+    messages.success(request, f'Strip template "{name}" deleted.')
+    return redirect('panel:strip_templates')
+
+
 # ---------------------------------------------------------------- categories
 @staff_required
 def categories(request):
@@ -459,26 +613,6 @@ def category_delete(request, pk):
     else:
         messages.success(request, f'Category "{category.name}" deleted.')
     return redirect('panel:categories')
-
-
-# ---------------------------------------------------------------- creations
-@staff_required
-def creations(request):
-    category = request.GET.get('category', '')
-    qs = Creation.objects.select_related('template__category')
-    if category.isdigit():
-        qs = qs.filter(template__category_id=category)
-    page, qs_params = paginate(request, qs, 24)
-    return render(request, 'panel/creations.html', page_ctx(
-        'creations', 'Gallery', page=page, qs_params=qs_params, category=category, categories=Category.objects.all()))
-
-
-@staff_required
-@require_POST
-def creation_delete(request, pk):
-    get_object_or_404(Creation, pk=pk).delete()
-    messages.success(request, 'Picture deleted from the gallery.')
-    return redirect(safe_next(request, 'panel:creations'))
 
 
 # ---------------------------------------------------------------- inquiries

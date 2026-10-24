@@ -3,6 +3,7 @@
     const preview = document.querySelector('.frame-preview');
     const rows = document.getElementById('textRows');
     if (!preview || !rows) return;
+    const slotRows = document.getElementById('slotRows');
 
     const control = (row, key) => row.querySelector(`[name$="-${key}"]`);
     const allRows = () => [...rows.querySelectorAll('.studio-field-card')].filter(row => control(row, 'x'));
@@ -156,5 +157,72 @@
     rows.addEventListener('change', ensureBoxes);
     document.getElementById('addText')?.addEventListener('click', () => requestAnimationFrame(ensureBoxes));
     ensureBoxes();
+
+    // Keep the numbered camera windows directly editable in the same preview.
+    if (slotRows) {
+        const cameraRows = () => [...slotRows.querySelectorAll('tr')].filter(row => control(row, 'x'));
+        const styleCameraBox = (box, row, index) => {
+            box.style.left = `${number(row, 'x', 0)}%`;
+            box.style.top = `${number(row, 'y', 0)}%`;
+            box.style.width = `${number(row, 'w', 20)}%`;
+            box.style.height = `${number(row, 'h', 20)}%`;
+            const shape = control(row, 'shape')?.value || 'square';
+            box.className = `win win-${shape} camera-window${row.querySelector('input[name$="-DELETE"]')?.checked ? ' is-deleted' : ''}`;
+            box.textContent = String(index + 1);
+            box.title = `Photo window ${index + 1}: drag to move; use the coordinate fields for exact placement`;
+            box.hidden = !!row.querySelector('input[name$="-DELETE"]')?.checked;
+        };
+        const ensureCameraBoxes = () => {
+            cameraRows().forEach((row, index) => {
+                let box = preview.querySelector(`.camera-window[data-slot-index="${index}"]`);
+                if (!box) {
+                    box = document.createElement('div');
+                    box.dataset.slotIndex = String(index);
+                    preview.appendChild(box);
+                }
+                if (!box.dataset.dragBound) {
+                    box.addEventListener('pointerdown', beginCameraDrag);
+                    box.dataset.dragBound = '1';
+                }
+                box._row = row;
+                styleCameraBox(box, row, index);
+            });
+            [...preview.querySelectorAll('.camera-window')].forEach(box => {
+                if (!cameraRows().includes(box._row)) box.remove();
+            });
+        };
+        function beginCameraDrag(event) {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const box = event.currentTarget, row = box._row;
+            if (!row || row.querySelector('input[name$="-DELETE"]')?.checked) return;
+            preview.querySelectorAll('.camera-window').forEach(item => item.classList.toggle('is-selected', item === box));
+            const rect = preview.getBoundingClientRect(), startX = event.clientX, startY = event.clientY;
+            const start = {x: number(row, 'x', 0), y: number(row, 'y', 0), w: number(row, 'w', 20), h: number(row, 'h', 20)};
+            const move = e => {
+                const dx = (e.clientX - startX) / rect.width * 100;
+                const dy = (e.clientY - startY) / rect.height * 100;
+                write(row, 'x', Math.max(0, Math.min(100 - start.w, start.x + dx)));
+                write(row, 'y', Math.max(0, Math.min(100 - start.h, start.y + dy)));
+                styleCameraBox(box, row, Number(box.dataset.slotIndex));
+            };
+            const end = () => {
+                window.removeEventListener('pointermove', move);
+                window.removeEventListener('pointerup', end);
+                ensureCameraBoxes();
+            };
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', end, {once: true});
+            window.addEventListener('pointercancel', end, {once: true});
+        }
+        slotRows.addEventListener('input', ensureCameraBoxes);
+        slotRows.addEventListener('change', ensureCameraBoxes);
+        slotRows.addEventListener('click', event => {
+            if (event.target.closest('#addSlot')) requestAnimationFrame(ensureCameraBoxes);
+        });
+        new MutationObserver(ensureCameraBoxes).observe(slotRows, {childList: true});
+        ensureCameraBoxes();
+    }
 
 })();

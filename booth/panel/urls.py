@@ -18,6 +18,7 @@ urlpatterns = [
 
     path('frames/', views.frames, name='frames'),
     path('frames/designer/', views.frame_designer, name='frame_designer'),
+    path('frames/designer/detect/', views.frame_designer_detect, name='frame_designer_detect'),
     path('frames/designer/save/', views.frame_designer_save, name='frame_designer_save'),
     path('frames/new/', views.frame_edit, name='frame_new'),
     path('frames/bulk/', views.frames_bulk, name='frames_bulk'),
@@ -25,13 +26,15 @@ urlpatterns = [
     path('frames/<int:pk>/', views.frame_edit, name='frame_edit'),
     path('frames/<int:pk>/delete/', views.frame_delete, name='frame_delete'),
 
+    path('strips/', views.strip_templates, name='strip_templates'),
+    path('strips/new/', views.strip_template_edit, name='strip_template_new'),
+    path('strips/<int:pk>/', views.strip_template_edit, name='strip_template_edit'),
+    path('strips/<int:pk>/delete/', views.strip_template_delete, name='strip_template_delete'),
+
     path('categories/', views.categories, name='categories'),
     path('categories/new/', views.category_edit, name='category_new'),
     path('categories/<int:pk>/', views.category_edit, name='category_edit'),
     path('categories/<int:pk>/delete/', views.category_delete, name='category_delete'),
-
-    path('creations/', views.creations, name='creations'),
-    path('creations/<int:pk>/delete/', views.creation_delete, name='creation_delete'),
 
     path('inquiries/', views.inquiries, name='inquiries'),
     path('inquiries/read-all/', views.inquiries_read_all, name='inquiries_read_all'),
