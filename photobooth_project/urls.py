@@ -1,8 +1,8 @@
 from django.conf import settings
-from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path, re_path
 from django.views.generic.base import RedirectView
+from django.views.static import serve
 
 admin.site.site_header = 'Photobooth (technical admin)'
 admin.site.site_title = 'Photobooth'
@@ -25,7 +25,8 @@ urlpatterns = [
     *legacy_redirects,
     re_path(r'^admin/?$', RedirectView.as_view(pattern_name='panel:dashboard')),
     path('panel/', include('booth.panel.urls')),
-    # The stock Django admin is kept only as a technical fallback (users, permissions).
     path('django-admin/', admin.site.urls),
+    # Serve media in both local and production
+    re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}),
     path('', include('booth.urls')),
-] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+]
