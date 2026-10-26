@@ -4,82 +4,97 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#f6f2ea">
-    <title>Account · Photobooth</title>
-    <link rel="stylesheet" href="{% static 'booth/style.css' %}?v=google-gate-1">
+    <meta name="theme-color" content="#f4f4f6">
+    <title>Account access · Photobooth</title>
     <style>
-        .google-gate{min-height:100dvh;display:grid;place-items:center;padding:24px;background:var(--bg)}
-        .google-card{width:min(460px,100%);padding:34px;border:1px solid var(--line);border-radius:22px;background:var(--paper);box-shadow:var(--shadow);text-align:center}
-        .google-brand{display:flex;justify-content:center;align-items:center;gap:10px;font:600 22px var(--serif)}
-        .google-mark{width:18px;height:18px;border-radius:6px;background:var(--ac)}
-        .google-card h1{margin-top:26px;font:500 32px/1.1 var(--serif);letter-spacing:-.02em}
-        .google-lead{margin:10px auto 22px;color:var(--mu);font-size:14px;line-height:1.6}
-        .account-tabs{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:20px;padding:4px;border-radius:11px;background:#f1ede5}
-        .account-tabs button{height:40px;border:0;border-radius:8px;background:transparent;color:var(--mu);font:550 14px var(--sans);cursor:pointer}
-        .account-tabs button[aria-selected="true"]{background:#fff;color:var(--ink);box-shadow:0 1px 4px #1b1a1717}
-        .account-form{text-align:left}
+        :root{color-scheme:light;--bg:#f4f4f6;--card:#fff;--text:#1c1c1e;--muted:#6b6b73;--border:#c9c9d0;--accent:#ff4a2b;--accent-hover:#e63e21;--google-bg:#f1f1f4;--google-hover:#e6e6ea}
+        *{box-sizing:border-box}
+        html,body{min-height:100%;margin:0}
+        body{min-height:100vh;display:grid;place-items:center;padding:24px;background:var(--bg);color:var(--text);font-family:Nunito,system-ui,-apple-system,"Segoe UI",sans-serif}
+        .card{width:min(425px,100%);padding:32px;background:var(--card);border-radius:20px;box-shadow:0 10px 30px #00000014}
+        h1{margin:0 0 10px;text-align:center;font-size:26px;font-weight:700}
+        .intro{margin:0 0 28px;text-align:center;color:var(--muted);font-size:13px;line-height:1.5}
+        .field{position:relative;margin:0 0 20px}
+        .field label{position:absolute;z-index:1;top:-8px;left:12px;padding:0 6px;background:var(--card);color:var(--muted);font-size:12px}
+        .field input{width:100%;height:52px;padding:0 48px 0 16px;border:1px solid var(--border);border-radius:10px;background:transparent;color:var(--text);font:inherit;font-size:15px;outline:none;transition:border-color .15s}
+        .field input:focus{border-color:var(--text)}
+        .password-toggle{position:absolute;top:50%;right:12px;display:flex;transform:translateY(-50%);padding:5px;border:0;background:transparent;color:var(--muted);cursor:pointer}
+        .password-toggle:focus-visible,.btn:focus-visible,.text-action:focus-visible,.back:focus-visible{outline:2px solid var(--text);outline-offset:3px}
+        .btn{display:flex;width:100%;min-height:48px;align-items:center;justify-content:center;gap:10px;border:0;border-radius:8px;font:inherit;font-size:15px;font-weight:700;text-decoration:none;cursor:pointer;transition:background .15s,color .15s}
+        .btn-primary{background:var(--accent);color:#fff}
+        .btn-primary:hover{background:var(--accent-hover)}
+        .btn-google{min-height:52px;background:var(--google-bg);color:var(--text);font-weight:600}
+        .btn-google:hover{background:var(--google-hover)}
+        .btn-google svg{width:22px;height:22px}
+        .divider{display:flex;align-items:center;gap:14px;margin:22px 0;font-size:12px;font-weight:700}
+        .divider:before,.divider:after{height:1px;flex:1;background:var(--border);content:""}
+        .signup{text-align:center;margin:22px 0 0;color:var(--muted);font-size:13px}
+        .text-action{padding:0;border:0;background:none;color:var(--text);font:inherit;font-weight:700;text-decoration:none;cursor:pointer}
+        .text-action:hover{text-decoration:underline}
         .account-form[hidden]{display:none}
-        .account-form label{display:block;margin:0 0 13px;color:var(--mu);font-size:12px;font-weight:550}
-        .account-form input{display:block;width:100%;height:46px;margin-top:6px;padding:0 13px;border:1px solid #cfc9be;border-radius:9px;background:#fff;color:var(--ink);font:14px var(--sans)}
-        .account-form input:focus{outline:2px solid var(--ac);outline-offset:1px;border-color:transparent}
-        .account-submit{width:100%;min-height:47px;margin-top:3px}
-        .account-divider{display:flex;align-items:center;gap:12px;margin:20px 0;color:var(--mu);font-size:12px}
-        .account-divider::before,.account-divider::after{height:1px;flex:1;background:var(--line);content:""}
-        .google-continue{display:flex;min-height:50px;align-items:center;justify-content:center;gap:12px;width:100%;border:1px solid #dadce0;border-radius:10px;background:#1b1b1b;color:#fff;font:500 15px var(--sans);text-decoration:none;transition:box-shadow .15s,background .15s}
-        .google-continue:hover{background:#292929;box-shadow:0 2px 7px #0002}
-        .google-continue svg{width:20px;height:20px}
-        .google-error{margin:16px 0 0!important;padding:12px;border-radius:9px;background:#fff3e8;color:#8f3c12!important;font-size:13px!important}
-        .account-error{margin:0 0 15px;padding:11px 12px;border-radius:9px;background:#fff0ed;color:#a82f19;font-size:13px;line-height:1.45;text-align:left}
-        .google-back{display:inline-block;margin-top:22px;color:var(--mu);font-size:13px;text-decoration:none}
-        .google-back:hover{color:var(--ac)}
-        @media(max-width:520px){.google-card{padding:28px 22px}.google-card h1{font-size:30px}}
+        .account-error{margin:0 0 16px;padding:11px 12px;border-radius:9px;background:#fff0ed;color:#a82f19;font-size:13px;line-height:1.45}
+        .google-error{margin:15px 0 0;padding:11px 12px;border-radius:9px;background:#fff3e8;color:#8f3c12;font-size:13px;line-height:1.45}
+        .back{display:block;width:max-content;margin:22px auto 0;color:var(--muted);font-size:13px;text-decoration:none}
+        .back:hover{color:var(--text)}
+        @media(max-width:520px){.card{padding:28px 22px}}
     </style>
 </head>
 <body>
-    <main class="google-gate">
-        <section class="google-card" aria-labelledby="googleTitle">
-            <div class="google-brand"><span class="google-mark" aria-hidden="true"></span>Photobooth</div>
-            <h1 id="googleTitle">Log in to your account</h1>
-            <p class="google-lead">Log in or create an account to personalize this frame.</p>
-            <div class="account-tabs" role="tablist" aria-label="Account access">
-                <button id="loginTab" type="button" role="tab" aria-controls="loginForm" aria-selected="{% if active_tab == 'login' %}true{% else %}false{% endif %}">Log in</button>
-                <button id="signupTab" type="button" role="tab" aria-controls="signupForm" aria-selected="{% if active_tab == 'signup' %}true{% else %}false{% endif %}">Sign up</button>
+    <main class="card">
+        <h1 id="accountTitle">{% if active_tab == 'signup' %}Create your account{% else %}Log in to your account{% endif %}</h1>
+        <p class="intro">Sign in to create your campaign link and QR. Creation continues after sign-in.</p>
+        {% if error and error != 'cancelled' and error != 'failed' and error != 'not_configured' %}<p class="account-error" role="alert">{{ error }}</p>{% endif %}
+
+        <form class="account-form" id="loginForm" method="post" {% if active_tab == 'signup' %}hidden{% endif %}>
+            {% csrf_token %}<input type="hidden" name="next" value="{{ next_url }}"><input type="hidden" name="popup" value="{% if popup %}1{% else %}0{% endif %}"><input type="hidden" name="force" value="{% if force_login %}1{% else %}0{% endif %}"><input type="hidden" name="action" value="login">
+            <div class="field"><label for="loginEmail">Email</label><input id="loginEmail" type="email" name="email" value="{{ email }}" autocomplete="email" required></div>
+            <div class="field"><label for="loginPassword">Password</label><input id="loginPassword" type="password" name="password" autocomplete="current-password" required>
+                <button class="password-toggle" id="passwordToggle" type="button" aria-label="Show password">
+                    <svg id="passwordEye" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24M1 1l22 22"/></svg>
+                </button>
             </div>
-            {% if error and error != 'cancelled' and error != 'failed' and error != 'not_configured' %}<p class="account-error" role="alert">{{ error }}</p>{% endif %}
-            <form class="account-form" id="loginForm" method="post" {% if active_tab != 'login' %}hidden{% endif %}>
-                {% csrf_token %}<input type="hidden" name="next" value="{{ next_url }}"><input type="hidden" name="popup" value="{% if popup %}1{% else %}0{% endif %}"><input type="hidden" name="action" value="login">
-                <label>Email<input type="email" name="email" value="{{ email }}" autocomplete="email" required></label>
-                <label>Password<input type="password" name="password" autocomplete="current-password" required></label>
-                <button class="btn primary account-submit" type="submit">Log in</button>
-            </form>
-            <form class="account-form" id="signupForm" method="post" {% if active_tab != 'signup' %}hidden{% endif %}>
-                {% csrf_token %}<input type="hidden" name="next" value="{{ next_url }}"><input type="hidden" name="popup" value="{% if popup %}1{% else %}0{% endif %}"><input type="hidden" name="action" value="signup">
-                <label>Organization name<input type="text" name="organization" maxlength="160" autocomplete="organization" required></label>
-                <label>Email<input type="email" name="email" value="{{ email }}" autocomplete="email" required></label>
-                <label>Password<input type="password" name="password" autocomplete="new-password" required></label>
-                <label>Confirm password<input type="password" name="confirm_password" autocomplete="new-password" required></label>
-                <button class="btn primary account-submit" type="submit">Create account</button>
-            </form>
-            <div class="account-divider"><span>OR</span></div>
-            <a class="google-continue" href="{% url 'google_auth_start' %}?next={{ next_url|urlencode }}&amp;popup={% if popup %}1{% else %}0{% endif %}">
-                <svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.61l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.91c-.58 2.96-2.26 5.48-4.75 7.18l7.73 6C44.4 37.92 46.98 31.83 46.98 24.55z"/><path fill="#FBBC05" d="M10.53 28.59A14.4 14.4 0 0 1 9.75 24c0-1.59.27-3.13.76-4.59l-7.98-6.19A23.9 23.9 0 0 0 0 24c0 3.87.93 7.52 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.8l-7.73-6c-2.14 1.45-4.89 2.3-8.16 2.3-6.26 0-11.57-4.22-13.46-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
-                Continue with Google
-            </a>
-            {% if not configured or error == 'not_configured' %}
-            <p class="google-error" role="alert">Google sign-in is not configured yet. Add the Google OAuth client ID and secret to the server settings, then try again.</p>
-            {% endif %}
-            {% if error == 'cancelled' %}<p class="google-error" role="status">Google sign-in was cancelled. Try again to continue.</p>{% elif error == 'failed' %}<p class="google-error" role="alert">Google could not verify your sign-in. Please try again.</p>{% endif %}
-            <a class="google-back" href="/">Back to frames</a>
-        </section>
+            <button type="submit" class="btn btn-primary">Log In</button>
+            <p class="signup">Don't have an account? <button class="text-action" id="showSignup" type="button">Sign up</button></p>
+        </form>
+
+        <form class="account-form" id="signupForm" method="post" {% if active_tab != 'signup' %}hidden{% endif %}>
+            {% csrf_token %}<input type="hidden" name="next" value="{{ next_url }}"><input type="hidden" name="popup" value="{% if popup %}1{% else %}0{% endif %}"><input type="hidden" name="force" value="{% if force_login %}1{% else %}0{% endif %}"><input type="hidden" name="action" value="signup">
+            <div class="field"><label for="organization">Organization name</label><input id="organization" type="text" name="organization" maxlength="160" autocomplete="organization" required></div>
+            <div class="field"><label for="signupEmail">Email</label><input id="signupEmail" type="email" name="email" value="{{ email }}" autocomplete="email" required></div>
+            <div class="field"><label for="signupPassword">Password</label><input id="signupPassword" type="password" name="password" autocomplete="new-password" required></div>
+            <div class="field"><label for="confirmPassword">Confirm password</label><input id="confirmPassword" type="password" name="confirm_password" autocomplete="new-password" required></div>
+            <button type="submit" class="btn btn-primary">Create Account</button>
+            <p class="signup">Already have an account? <button class="text-action" id="showLogin" type="button">Log in</button></p>
+        </form>
+
+        <div class="divider">OR</div>
+        <a class="btn btn-google" href="{% url 'google_auth_start' %}?next={{ next_url|urlencode }}&amp;popup={% if popup %}1{% else %}0{% endif %}">
+            <svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.61l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.91c-.58 2.96-2.26 5.48-4.75 7.18l7.73 6C44.4 37.83 46.98 31.83 46.98 24.55z"/><path fill="#FBBC05" d="M10.53 28.59A14.4 14.4 0 0 1 9.75 24c0-1.59.27-3.13.76-4.59l-7.98-6.19A23.9 23.9 0 0 0 0 24c0 3.87.93 7.52 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.8l-7.73-6c-2.14 1.45-4.89 2.3-8.16 2.3-6.26 0-11.57-4.22-13.46-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+            Log In with Google
+        </a>
+        {% if not configured or error == 'not_configured' %}<p class="google-error" role="status">Google sign-in is not configured. Use email and password, or ask the site administrator to configure Google sign-in.</p>{% endif %}
+        {% if error == 'cancelled' %}<p class="google-error" role="status">Google sign-in was cancelled. Try again to continue.</p>{% elif error == 'failed' %}<p class="google-error" role="alert">Google could not verify your sign-in. Please try again.</p>{% endif %}
+        <a class="back" href="/">Back to frames</a>
     </main>
     <script>
-        const tabs = {login: document.getElementById('loginTab'), signup: document.getElementById('signupTab')};
-        const forms = {login: document.getElementById('loginForm'), signup: document.getElementById('signupForm')};
-        Object.entries(tabs).forEach(([name, tab]) => tab.addEventListener('click', () => {
-            Object.entries(tabs).forEach(([key, item]) => item.setAttribute('aria-selected', String(key === name)));
-            Object.entries(forms).forEach(([key, form]) => form.hidden = key !== name);
-            document.getElementById('googleTitle').textContent = name === 'login' ? 'Log in to your account' : 'Create your account';
-        }));
+        const loginForm = document.getElementById('loginForm');
+        const signupForm = document.getElementById('signupForm');
+        const title = document.getElementById('accountTitle');
+        function setAccountMode(mode) {
+            const signup = mode === 'signup';
+            loginForm.hidden = signup;
+            signupForm.hidden = !signup;
+            title.textContent = signup ? 'Create your account' : 'Log in to your account';
+        }
+        document.getElementById('showSignup').addEventListener('click', () => setAccountMode('signup'));
+        document.getElementById('showLogin').addEventListener('click', () => setAccountMode('login'));
+        const password = document.getElementById('loginPassword');
+        const toggle = document.getElementById('passwordToggle');
+        toggle.addEventListener('click', () => {
+            const show = password.type === 'password';
+            password.type = show ? 'text' : 'password';
+            toggle.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+        });
     </script>
 </body>
 </html>

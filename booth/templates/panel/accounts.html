@@ -1,0 +1,25 @@
+{% extends "panel/base.html" %}
+{% block content %}
+<div class="page-head">
+    <div><h1>Customer accounts</h1><p>Account details for reference. Passwords are securely hashed and never displayed.</p></div>
+</div>
+<form class="toolbar" method="get">
+    <div class="search"><svg class="i"><use href="#i-search"/></svg><input type="search" name="q" value="{{ q }}" placeholder="Search organization or email" aria-label="Search customer accounts"></div>
+    {% if q %}<a class="btn sm" href="{% url 'panel:accounts' %}">Clear</a>{% endif %}
+</form>
+<section class="card">
+    {% if page.object_list %}
+    <div class="table-wrap"><table class="t">
+        <thead><tr><th>Organization</th><th>Email</th><th>Sign-in method</th><th class="hide-sm">Account created</th><th class="hide-sm">Last login</th></tr></thead>
+        <tbody>{% for profile in page.object_list %}<tr>
+            <td><b>{{ profile.organization_name|default:"—" }}</b></td>
+            <td>{{ profile.user.email|default:profile.user.username }}</td>
+            <td>{% if profile.user.has_usable_password %}Email and password{% else %}Google sign-in{% endif %}</td>
+            <td class="hide-sm muted nowrap">{{ profile.user.date_joined|date:"d M Y, H:i" }}</td>
+            <td class="hide-sm muted nowrap">{% if profile.user.last_login %}{{ profile.user.last_login|date:"d M Y, H:i" }}{% else %}Never{% endif %}</td>
+        </tr>{% endfor %}</tbody>
+    </table></div>
+    {% include "panel/_pager.html" %}
+    {% else %}<div class="empty"><svg class="i"><use href="#i-user"/></svg><h3>{% if q %}No accounts match{% else %}No customer accounts yet{% endif %}</h3><p>{% if q %}Try a different search.{% else %}Customer accounts will appear here when people sign up or continue with Google.{% endif %}</p></div>{% endif %}
+</section>
+{% endblock %}

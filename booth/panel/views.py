@@ -24,7 +24,7 @@ from django.utils.text import slugify
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
-from ..models import BusinessCampaign, Category, FrameSlot, FrameTemplate, Inquiry, StripLayoutVariant, StripPhotoWindow, StripTemplate
+from ..models import BusinessCampaign, Category, FrameSlot, FrameTemplate, GuestAccountProfile, Inquiry, StripLayoutVariant, StripPhotoWindow, StripTemplate
 from ..cleaner import remove_checkerboard
 from ..detect import detect_windows
 from .context import notification_payload
@@ -111,6 +111,18 @@ def dashboard(request):
         recent_campaigns=BusinessCampaign.objects.select_related('frame_template').order_by('-created')[:5],
     )
     return render(request, 'panel/dashboard.html', ctx)
+
+
+@staff_required
+def accounts(request):
+    qs = GuestAccountProfile.objects.select_related('user').order_by('-user__date_joined')
+    q = request.GET.get('q', '').strip()
+    if q:
+        qs = qs.filter(Q(organization_name__icontains=q) | Q(user__email__icontains=q) |
+                       Q(user__username__icontains=q))
+    page, qs_params = paginate(request, qs, 25)
+    return render(request, 'panel/accounts.html', page_ctx(
+        'accounts', 'Customer accounts', page=page, qs_params=qs_params, q=q))
 
 
 # ---------------------------------------------------------------- campaigns
@@ -322,7 +334,12 @@ def frames(request):
     q = request.GET.get('q', '').strip()
     category = request.GET.get('category', '')
     status = request.GET.get('status', '')
-    qs = FrameTemplate.objects.select_related('category').annotate(n_slots=Count('slots', distinct=True))
+    # The Frames screen is the public frame library. Uncategorised designs and
+    # older community designs remain available through their campaign record,
+    # but should not be presented as entries in this library.
+    qs = FrameTemplate.objects.filter(category__isnull=False).exclude(
+        category__name='Community designs').select_related('category').annotate(
+        n_slots=Count('slots', distinct=True))
     if q:
         qs = qs.filter(name__icontains=q)
     if category.isdigit():

@@ -10,19 +10,27 @@ const campaignConfig = JSON.parse($('campaignConfig').textContent);
 const googleAuthConfig = JSON.parse($('googleAuthConfig')?.textContent || '{"authenticated":false,"googleStartUrl":"/auth/google/start/","googleEnabled":false}');
 const adminStudioConfig = JSON.parse($('adminStudioConfig')?.textContent || 'null');
 let accountPopup = null, pendingAccountAction = null;
-window.addEventListener('message', event => {
+window.addEventListener('message', async event => {
     if (event.origin !== location.origin || event.source !== accountPopup || event.data?.type !== 'photobooth-account-ready') return;
-    googleAuthConfig.authenticated = true;
     accountPopup = null;
     const action = pendingAccountAction;
     pendingAccountAction = null;
-    action?.();
+    try {
+        const response = await fetch('/api/csrf-token/', {credentials: 'same-origin', cache: 'no-store'});
+        if (!response.ok) throw new Error('Could not refresh the security token.');
+        const {csrfToken} = await response.json();
+        document.querySelector('meta[name="csrf"]').content = csrfToken;
+        googleAuthConfig.authenticated = true;
+        action?.();
+    } catch {
+        toast('Signed in, but could not refresh the security token. Please try again.');
+    }
 });
 function withAccount(action) {
     const next = new URL('/', location.origin);
     if (flow?.serverTemplate?.id) next.searchParams.set('resume_frame', flow.serverTemplate.id);
     pendingAccountAction = action;
-    accountPopup = window.open(`/auth/google/?next=${encodeURIComponent(next.pathname + next.search)}&popup=1`, 'photoboothAccount', 'popup,width=520,height=720');
+    accountPopup = window.open(`/account/?next=${encodeURIComponent(next.pathname + next.search)}&popup=1&force=1`, 'photoboothAccount', 'popup,width=520,height=720');
     if (!accountPopup) {
         pendingAccountAction = null;
         toast('Allow pop-ups to sign in or create an account.');
@@ -1861,17 +1869,22 @@ async function saveCurrentTemplate(nameOverride = '') {
     } catch { toast('Could not save the template on this device'); }
 }
 
-async function savePersonalizedFrame() {
+async function savePersonalizedFrame(options = {}) {
     if (personalizedCampaignCreated) return;
     if (!flow?.serverTemplate || !activeServerFrame) return;
     if (!updatePersonalizeRequirements()) { toast('Complete all required fields before creating your campaign'); return; }
-    if (!googleAuthConfig.authenticated && !campaignConfig) {
-        withAccount(() => savePersonalizedFrame());
+    const campaignUrlName = $('frameCampaignBrandName').value.trim();
+    if (!campaignUrlName) {
+        $('frameCampaignBrandName').focus();
+        toast('Enter a brand name for your campaign link.');
+        return;
+    }
+    if (!options.accountVerified) {
+        withAccount(() => savePersonalizedFrame({accountVerified: true}));
         return;
     }
     const template = flow.serverTemplate;
     const name = $('framePersonalizeSaveName').value.trim() || `${template.name} - My Design`;
-    const campaignUrlName = $('frameCampaignBrandName').value.trim();
     const createButton = $('framePersonalizeSave');
     const topSaveButton = $('framePersonalizeSaveTop');
     if (createButton.disabled) return;
@@ -1922,7 +1935,7 @@ async function savePersonalizedFrame() {
             campaignName = name.replace(/\s+-\s+My Design$/i, '').trim() || name;
         }
         upload.append('campaign_name', campaignName);
-        upload.append('campaign_slug_name', campaignUrlName || campaignName || name);
+        upload.append('campaign_slug_name', campaignUrlName);
         if (logoSrc) {
             try {
                 const logoResponse = await fetch(logoSrc);
@@ -1943,6 +1956,10 @@ async function savePersonalizedFrame() {
             method: 'POST', body: upload,
             headers: {'X-CSRFToken': document.querySelector('meta[name="csrf"]').content}
         });
+        if (response.status === 401) {
+            withAccount(() => savePersonalizedFrame({accountVerified: true}));
+            return;
+        }
         const result = await response.json();
         if (!response.ok || !result.ok) { toast(result.error || 'Could not share this frame'); return; }
         $('framePersonalizeShareTitle').textContent = `${result.name} is ready to share`;

@@ -355,7 +355,7 @@
             </nav>
             <aside class="personalize-studio-panel">
                 <div class="personalize-panel-heading"><span class="eyebrow">PERSONALIZE</span><h2 id="framePersonalizeSectionTitle">Brand logo</h2><p id="framePersonalizeName"></p></div>
-                <label class="personalize-save-name personalize-url-name"><span>Brand name for URL <small>(optional)</small></span><input id="frameCampaignBrandName" type="text" maxlength="120" placeholder="Defaults to your brand name" autocomplete="organization"><small>Optional. Used to customize your campaign link.</small></label>
+                <label class="personalize-save-name personalize-url-name"><span>Brand name for URL <small>(required)</small></span><input id="frameCampaignBrandName" type="text" maxlength="120" placeholder="Enter your brand name" autocomplete="organization" required><small>Used to create your campaign link.</small></label>
                 <p class="personalize-required-note" id="framePersonalizeRequiredNote" role="status">Complete every required Studio field to unlock campaign creation and template saving.</p>
                 <div class="personalize-section-content">
                         <section class="personalize-section is-active" data-personalize-panel="logo">
@@ -705,7 +705,7 @@
 {{ google_auth_config|json_script:"googleAuthConfig" }}
 {{ studio_backgrounds|json_script:"studioBackgrounds" }}
 {{ admin_studio_config|json_script:"adminStudioConfig" }}
-    <script src="{% static 'booth/app.js' %}?v=strip-admin-1"></script>
+    <script src="{% static 'booth/app.js' %}?v=campaign-auth-5"></script>
 <script src="{% static 'booth/live.js' %}?v=live-host-result-fix-1"></script>
 </body>
 </html>

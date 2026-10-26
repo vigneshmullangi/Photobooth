@@ -17,6 +17,7 @@
     <nav class="side-nav">
         <a class="nav-link{% if section == 'dashboard' %} is-active{% endif %}" href="{% url 'panel:dashboard' %}"><svg class="i"><use href="#i-dash"/></svg>Dashboard</a>
         <a class="nav-link{% if section == 'inquiries' %} is-active{% endif %}" href="{% url 'panel:inquiries' %}"><svg class="i"><use href="#i-mail"/></svg>Inquiries<span class="nav-count" data-unread{% if not notify.unread %} hidden{% endif %}>{{ notify.unread }}</span></a>
+        <a class="nav-link{% if section == 'accounts' %} is-active{% endif %}" href="{% url 'panel:accounts' %}"><svg class="i"><use href="#i-user"/></svg>Customer accounts</a>
         <div class="side-label">Campaigns</div>
         <a class="nav-link{% if section == 'campaigns' %} is-active{% endif %}" href="{% url 'panel:campaigns' %}"><svg class="i"><use href="#i-qr"/></svg>Business campaigns</a>
         <div class="side-label">Content</div>

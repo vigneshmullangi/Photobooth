@@ -4,9 +4,11 @@ from . import views
 
 urlpatterns = [
     path('', views.index, name='index'),
+    path('account/', views.google_auth_prompt, name='account_access'),
     path('auth/google/', views.google_auth_prompt, name='google_auth_prompt'),
     path('auth/google/start/', views.google_auth_start, name='google_auth_start'),
     path('auth/google/callback/', views.google_auth_callback, name='google_auth_callback'),
+    path('api/csrf-token/', views.api_csrf_token, name='api_csrf_token'),
     path('api/templates/', views.api_templates, name='api_templates'),
     path('api/shared-frames/', views.api_save_shared_frame, name='api_save_shared_frame'),
     path('api/shared-frames/<int:pk>/campaign/', views.api_ensure_shared_frame_campaign, name='api_ensure_shared_frame_campaign'),

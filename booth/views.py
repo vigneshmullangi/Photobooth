@@ -22,9 +22,11 @@ from django.core.validators import validate_email
 from django.db import transaction
 from django.db.models import F, Prefetch
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
+from django.middleware.csrf import get_token
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 from PIL import Image, ImageDraw, ImageFont
 import qrcode
@@ -158,7 +160,8 @@ def _safe_local_next(value):
 def google_auth_prompt(request):
     next_url = _safe_local_next(request.POST.get('next') if request.method == 'POST' else request.GET.get('next'))
     popup = (request.POST.get('popup') if request.method == 'POST' else request.GET.get('popup')) == '1'
-    if request.user.is_authenticated:
+    force_login = (request.POST.get('force') if request.method == 'POST' else request.GET.get('force')) == '1'
+    if request.user.is_authenticated and not force_login:
         if popup:
             return render(request, 'booth/auth_complete.html')
         return redirect(next_url)
@@ -222,6 +225,7 @@ def google_auth_prompt(request):
         'active_tab': active_tab if active_tab in {'login', 'signup'} else 'login',
         'email': email,
         'popup': popup,
+        'force_login': force_login,
     })
 
 
@@ -343,13 +347,23 @@ def api_templates(request):
     return JsonResponse({'categories': out})
 
 
+@ensure_csrf_cookie
+@require_GET
+def api_csrf_token(request):
+    """Return a fresh masked CSRF token after an authentication session change."""
+    return JsonResponse({'csrfToken': get_token(request)})
+
+
 @require_POST
 def api_save_shared_frame(request):
     """Save an authenticated guest-personalized frame as a public template."""
     if not request.user.is_authenticated:
         return JsonResponse({'ok': False, 'error': 'Log in or sign up before saving a personalized frame.'}, status=401)
     name = request.POST.get('name', '').strip()[:120]
+    campaign_slug_name = request.POST.get('campaign_slug_name', '').strip()[:120]
     upload = request.FILES.get('image')
+    if not campaign_slug_name or not slugify(campaign_slug_name):
+        return JsonResponse({'ok': False, 'error': 'Enter a valid brand name for your campaign link.'}, status=400)
     if not name or not upload or upload.size > 15 * 1024 * 1024:
         return JsonResponse({'ok': False, 'error': 'Add a frame name and choose an image under 15 MB.'}, status=400)
     try:
@@ -383,7 +397,6 @@ def api_save_shared_frame(request):
         return JsonResponse({'ok': False, 'error': 'The frame could not be read. Please try saving it again.'}, status=400)
 
     brand_name = request.POST.get('campaign_name', '').strip()[:120] or name
-    campaign_slug_name = request.POST.get('campaign_slug_name', '').strip()[:120] or brand_name
     logo_upload = request.FILES.get('campaign_logo')
     try:
         with transaction.atomic():
